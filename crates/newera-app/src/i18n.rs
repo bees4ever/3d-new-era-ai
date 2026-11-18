@@ -917,7 +917,15 @@ fn translations(pt: &str) -> Option<[&'static str; 3]> {
         "Excluir andar" => ["Delete storey", "Eliminar planta", "Supprimer l'étage"],
         "Exibir" => ["Show", "Ver", "Afficher"],
         "Exportar 3D" => ["Export 3D", "Exportar 3D", "Exporter la 3D"],
+        "Exportar paredes" => ["Export walls", "Exportar paredes", "Exporter les murs"],
         "Exportar planta" => ["Export plan", "Exportar plano", "Exporter le plan"],
+        "CSV (planilha)…" => [
+            "CSV (spreadsheet)…",
+            "CSV (hoja de cálculo)…",
+            "CSV (tableur)…",
+        ],
+        "DXF (CAD)…" => ["DXF (CAD)…", "DXF (CAD)…", "DXF (CAO)…"],
+        "JSON…" => ["JSON…", "JSON…", "JSON…"],
         "Fechada" => ["Closed", "Cerrada", "Fermée"],
         "Fechar" => ["Close", "Cerrar", "Fermer"],
         "Fechar versão" => ["Close version", "Cerrar versión", "Fermer la version"],
@@ -1313,6 +1321,16 @@ fn translations(pt: &str) -> Option<[&'static str; 3]> {
             "Plan exported to {}",
             "Plano exportado a {}",
             "Plan exporté vers {}",
+        ],
+        "Paredes exportadas para {}" => [
+            "Walls exported to {}",
+            "Paredes exportadas a {}",
+            "Murs exportés vers {}",
+        ],
+        "Nenhuma parede para exportar." => [
+            "No walls to export.",
+            "No hay paredes para exportar.",
+            "Aucun mur à exporter.",
         ],
         "⚠ Imagem inválida: {}" => [
             "⚠ Invalid image: {}",

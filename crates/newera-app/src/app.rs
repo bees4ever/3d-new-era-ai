@@ -1022,6 +1022,57 @@ impl NewEraApp {
         }
     }
 
+    /// Writes the selected walls, or every wall of this storey, without MCP.
+    fn export_walls(&mut self, ext: &str) {
+        let selected: Vec<newera_core::WallId> = self
+            .selection
+            .iter()
+            .filter_map(|id| match id {
+                ElementId::Wall(wall) => Some(*wall),
+                _ => None,
+            })
+            .collect();
+        let walls = {
+            let doc = self.document.read();
+            newera_core::walls_to_export(doc.home(), &selected)
+        };
+        if walls.is_empty() {
+            return self.set_status(crate::i18n::tr("Nenhuma parede para exportar."));
+        }
+        let name = self.document.read().home().name.clone();
+        let ext_owned = ext.to_owned();
+        let make = move || newera_core::walls_bytes(&walls, &ext_owned);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let dialog =
+                crate::files::save_dialog(&ext.to_uppercase(), ext, &format!("{name}.{ext}"));
+            self.ask_file(dialog, move |app, path| {
+                let Some(path) = path else {
+                    return;
+                };
+                match make()
+                    .and_then(|bytes| std::fs::write(&path, bytes).map_err(|e| e.to_string()))
+                {
+                    Ok(()) => app.set_status(crate::i18n::fill(
+                        "Paredes exportadas para {}",
+                        &[&path.display()],
+                    )),
+                    Err(err) => {
+                        app.set_status(crate::i18n::fill("⚠ Falha ao exportar: {}", &[&err]));
+                    }
+                }
+            });
+        }
+        #[cfg(target_arch = "wasm32")]
+        match crate::files::save_bytes(&ext.to_uppercase(), ext, &format!("{name}.{ext}"), make) {
+            Ok(Some(path)) => {
+                self.set_status(crate::i18n::fill("Paredes exportadas para {}", &[&path]));
+            }
+            Ok(None) => {}
+            Err(err) => self.set_status(crate::i18n::fill("⚠ Falha ao exportar: {}", &[&err])),
+        }
+    }
+
     /// Imports an OBJ/glTF file as a piece at its natural size, placed at
     /// the middle of the plan view.
     #[cfg(target_arch = "wasm32")]
@@ -1677,6 +1728,20 @@ impl NewEraApp {
                         }
                         if ui.button(crate::i18n::tr("OBJ + MTL…")).clicked() {
                             self.export_3d("obj");
+                        }
+                    },
+                );
+                ui.menu_button(
+                    format!("{} {}", icon::WALL, crate::i18n::tr("Exportar paredes")),
+                    |ui| {
+                        if ui.button(crate::i18n::tr("CSV (planilha)…")).clicked() {
+                            self.export_walls("csv");
+                        }
+                        if ui.button(crate::i18n::tr("DXF (CAD)…")).clicked() {
+                            self.export_walls("dxf");
+                        }
+                        if ui.button(crate::i18n::tr("JSON…")).clicked() {
+                            self.export_walls("json");
                         }
                     },
                 );
@@ -3103,6 +3168,18 @@ mod tests {
         h.run_steps(3);
         assert!(h.query_by_label("Agora não").is_none());
         assert!(!h.state().support_ask);
+    }
+
+    #[test]
+    fn the_file_menu_exports_walls_without_mcp() {
+        let mut h = app_with_wall();
+        h.get_by_label("Arquivo").click();
+        h.run_steps(3);
+        h.get_by_label_contains("Exportar paredes").click();
+        h.run_steps(3);
+        h.get_by_label_contains("CSV (planilha)");
+        h.get_by_label_contains("DXF (CAD)");
+        h.get_by_label("JSON…");
     }
 
     #[test]
