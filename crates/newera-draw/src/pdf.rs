@@ -6,7 +6,7 @@ use std::fmt::Write as _;
 
 use newera_core::{Home, Point2, Wall};
 
-use crate::scene::{Align, Color, Primitive, Scene, Size, wall_elevations_scene};
+use crate::scene::{Align, Color, Primitive, Scene, Size, wall_elevations_scene, wall_page_title};
 
 /// A4 portrait, centimeters.
 const A4_CM: [f64; 2] = [21.0, 29.7];
@@ -192,8 +192,8 @@ fn page_stream(scene: &Scene, options: &PdfOptions) -> String {
     }
 
     let scale_text = options.scale.map_or_else(
-        || format!("Escala aprox. 1:{:.0}", PT_PER_CM / scale),
-        |d| format!("Escala 1:{d:.0}"),
+        || format!("Scale approx. 1:{:.0}", PT_PER_CM / scale),
+        |d| format!("Scale 1:{d:.0}"),
     );
     let _ = writeln!(
         content,
@@ -281,7 +281,7 @@ pub fn walls_to_a4_pdf(home: &Home, walls: &[Wall], options: &PdfOptions) -> Vec
             .iter()
             .map(|wall| {
                 let mut one = page.clone();
-                one.title = format!("{} / {}", options.title, wall.id);
+                one.title = wall_page_title(home, wall, &options.title);
                 page_stream(
                     &wall_elevations_scene(home, std::slice::from_ref(wall)),
                     &one,
@@ -341,7 +341,7 @@ mod tests {
         // "ô" (0xF4) and "—" (0x97) in WinAnsi, parentheses escaped.
         assert!(text.contains(r"C\364modo \227 \341rea"), "accents encoded");
         assert!(text.contains(r"Tomada \(baixa\)"));
-        assert!(text.contains("Escala 1:50"));
+        assert!(text.contains("Scale 1:50"));
         // The xref offset points at the table.
         let start = text.rfind("startxref\n").unwrap() + 10;
         let offset: usize = text[start..].lines().next().unwrap().parse().unwrap();
@@ -462,5 +462,53 @@ mod tests {
         assert!(text.contains("Tomada baixa"), "{text}");
         assert!(text.contains("120 / 35"), "{text}");
         assert!(text.contains("from start / from floor"), "{text}");
+    }
+
+    #[test]
+    fn walls_a4_pdf_heading_has_the_room_and_ceiling_lamps() {
+        let mut home = Home::default();
+        let pts = [(0.0, 0.0), (400.0, 0.0), (400.0, 300.0), (0.0, 300.0)];
+        let wall_ids: Vec<_> = (0..4).map(|_| home.new_wall_id()).collect();
+        for i in 0..4 {
+            let (a, b) = (pts[i], pts[(i + 1) % 4]);
+            home.walls.push(Wall::new(
+                wall_ids[i],
+                Point2::new(a.0, a.1),
+                Point2::new(b.0, b.1),
+            ));
+        }
+        let room_id = home.new_room_id();
+        home.rooms.push(Room::new(
+            room_id,
+            "Kitchen",
+            pts.iter().map(|&(x, y)| Point2::new(x, y)).collect(),
+        ));
+        let lamp_id = home.new_furniture_id();
+        home.furniture.push(Furniture {
+            id: lamp_id,
+            catalog: "light-ceiling".into(),
+            name: "Pendant".into(),
+            position: Point2::new(200.0, 150.0),
+            elevation: 244.0,
+            width: 20.0,
+            depth: 20.0,
+            height: 6.0,
+            ..Furniture::default()
+        });
+        let pdf = walls_to_a4_pdf(
+            &home,
+            &home.walls,
+            &PdfOptions {
+                title: "Casa".into(),
+                ..PdfOptions::default()
+            },
+        );
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("Casa / Kitchen /"), "{text}");
+        assert!(text.contains("Kitchen / "), "{text}");
+        assert!(text.contains("Pendant"), "{text}");
+        assert!(text.contains("Scale approx."), "{text}");
+        assert!(!text.contains("Escala"), "{text}");
+        assert!(!text.contains("paredes"), "{text}");
     }
 }

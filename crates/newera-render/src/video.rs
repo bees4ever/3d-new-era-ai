@@ -14,6 +14,14 @@ use crate::{Mesh, ModelCache, RenderOptions, Selection, View, render};
 /// Turning speed used to time keyframes that mostly rotate, degrees/s.
 const TURN_DEG_PER_S: f64 = 45.0;
 
+/// Compressed JPEG budget before the AVI is assembled in memory.
+/// The browser tab cannot hold much; the desktop build may fill a 2 GiB
+/// RIFF. Stream-to-file if a clip still hits this.
+#[cfg(target_arch = "wasm32")]
+const MAX_ENCODED: usize = 32 * 1024 * 1024;
+#[cfg(not(target_arch = "wasm32"))]
+const MAX_ENCODED: usize = 2048 * 1024 * 1024;
+
 /// Unwraps headings so consecutive keyframes differ by at most 180°.
 fn unwrapped_yaws(keys: &[Camera]) -> Vec<f64> {
     let mut out: Vec<f64> = Vec::with_capacity(keys.len());
@@ -385,7 +393,7 @@ pub fn validate_video(
     let max_frames = if cfg!(target_arch = "wasm32") {
         900.0
     } else {
-        1800.0
+        10_800.0
     };
     let max_pixels = if cfg!(target_arch = "wasm32") {
         1_228_800
@@ -404,8 +412,7 @@ pub fn validate_video(
         || u64::from(size.0) * u64::from(size.1) > max_pixels
     {
         return Err(
-            "Vídeo excede os limites: reduza a resolução, o percurso ou os quadros por segundo."
-                .into(),
+            "Video exceeds the limits: reduce the resolution, the path or the frame rate.".into(),
         );
     }
     Ok(())
@@ -434,7 +441,7 @@ pub fn render_video_bytes(
         let frame = jpeg(&image, 88);
         encoded += frame.len();
         // AVI assembly uses several buffers; bound the compressed input too.
-        if encoded > 32 * 1024 * 1024 {
+        if encoded > MAX_ENCODED {
             exceeded = true;
             return false;
         }
@@ -447,7 +454,10 @@ pub fn render_video_bytes(
         return Err(newera_core::progress::CANCELLED.into());
     }
     if exceeded {
-        return Err("Vídeo excede 32 MB. Reduza a duração ou a resolução.".into());
+        return Err(format!(
+            "Video exceeds {} MB. Reduce the duration or the resolution.",
+            MAX_ENCODED / (1024 * 1024)
+        ));
     }
     newera_core::progress::step("Finalizando vídeo", 0, 0);
     let mut bytes = Vec::new();

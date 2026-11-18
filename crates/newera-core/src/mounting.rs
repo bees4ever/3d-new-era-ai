@@ -998,11 +998,18 @@ pub struct WallFixture {
     pub catalog: String,
 }
 
-/// Whether a piece belongs on a wall elevation (not a door, a cabinet, a
-/// ceiling point or something standing in the room).
+fn is_lamp(piece: &Furniture) -> bool {
+    crate::electrical::point_kind(piece) == crate::electrical::PointKind::Lighting
+}
+
+/// Whether a piece belongs on a wall elevation (not a door, a cabinet, or
+/// something standing in the room). Lamps go on, including ceiling ones.
 fn is_wall_fixture(piece: &Furniture) -> bool {
     if !piece.visible || piece.is_opening() || piece.is_group() {
         return false;
+    }
+    if is_lamp(piece) {
+        return true;
     }
     if on_ceiling(piece)
         || matches!(
@@ -1016,9 +1023,6 @@ fn is_wall_fixture(piece: &Furniture) -> bool {
         return true;
     }
     if piece.discipline == Some(crate::style::Discipline::Electrical) {
-        return true;
-    }
-    if piece.light.is_some() {
         return true;
     }
     // Imported Schuko, sconces, and the like: a shallow box on the face.
@@ -1036,6 +1040,7 @@ pub fn wall_fixtures(
         if !is_wall_fixture(piece) {
             continue;
         }
+        let lamp = is_lamp(piece);
         let Some((i, along)) = walls
             .iter()
             .enumerate()
@@ -1046,7 +1051,7 @@ pub fn wall_fixtures(
                     return None;
                 }
                 let dist = distance_to_segment(piece.position, w.start, w.end);
-                if dist > w.thickness / 2.0 + IN_WALL {
+                if !lamp && dist > w.thickness / 2.0 + IN_WALL {
                     return None;
                 }
                 let dir = ((w.end.x - w.start.x) / len, (w.end.y - w.start.y) / len);
@@ -1562,7 +1567,7 @@ mod tests {
             Point2::new(400.0, 200.0),
         );
         let lists = wall_fixtures(&[wall, other], &[low, lamp, ceiling, sofa]);
-        assert_eq!(lists[0].len(), 2, "{:?}", lists[0]);
+        assert_eq!(lists[0].len(), 3, "{:?}", lists[0]);
         assert!(
             lists[0]
                 .iter()
@@ -1572,6 +1577,13 @@ mod tests {
             lists[0]
                 .iter()
                 .any(|f| f.name == "Wandlampe" && (f.along - 250.0).abs() < 0.1)
+        );
+        assert!(
+            lists[0]
+                .iter()
+                .any(|f| f.name == "Pendente" && (f.along - 150.0).abs() < 0.1),
+            "ceiling lamps sit on the nearest wall: {:?}",
+            lists[0]
         );
         assert!(lists[1].is_empty(), "nothing sits on the far wall");
     }

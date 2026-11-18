@@ -9,8 +9,8 @@ use std::sync::atomic::{AtomicU8, Ordering};
 pub(crate) enum Lang {
     /// Portuguese (Brazil): the language the texts are written in, so it
     /// needs no table.
-    #[default]
     Pt,
+    #[default]
     En,
     Es,
     Fr,

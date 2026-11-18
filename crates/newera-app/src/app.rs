@@ -245,7 +245,7 @@ impl NewEraApp {
             if settings.english {
                 crate::i18n::Lang::En
             } else if first_run {
-                crate::i18n::Lang::from_system().unwrap_or_default()
+                crate::i18n::Lang::from_system().unwrap_or(crate::i18n::Lang::En)
             } else {
                 crate::i18n::Lang::Pt
             }
@@ -1046,7 +1046,7 @@ impl NewEraApp {
         }
         let ext = if kind.starts_with("pdf") { "pdf" } else { kind };
         let kind = kind.to_owned();
-        let title = format!("{name} — paredes");
+        let title = crate::i18n::shown(&name);
         let make = move || {
             let options = newera_draw::PdfOptions {
                 title,

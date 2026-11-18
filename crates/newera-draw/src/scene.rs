@@ -456,7 +456,7 @@ fn draw_wall_elevation(
         );
     }
     let cm = |v: f64| format!("{v:.0}");
-    let mut label = format!("{}  {}x{} cm", wall.id, cm(len), cm(h0));
+    let mut label = wall_heading(home, wall, &cm(len), &cm(h0));
     if let Some(kind) = wall.wall_type.as_deref().filter(|s| !s.is_empty()) {
         label.push(' ');
         label.push_str(kind);
@@ -545,6 +545,56 @@ fn draw_wall_elevation(
         }
     }
     band + extra
+}
+
+/// Rooms that have this wall as an edge, names in plan order.
+fn rooms_on_wall<'a>(home: &'a Home, wall: &Wall) -> Vec<&'a str> {
+    let len = wall.length();
+    if len < 1e-9 {
+        return Vec::new();
+    }
+    let mid = wall.point_at(0.5);
+    let (dx, dy) = (
+        (wall.end.x - wall.start.x) / len,
+        (wall.end.y - wall.start.y) / len,
+    );
+    let off = wall.thickness / 2.0 + 8.0;
+    let probes = [
+        Point2::new(mid.x - dy * off, mid.y + dx * off),
+        Point2::new(mid.x + dy * off, mid.y - dx * off),
+    ];
+    home.rooms
+        .iter()
+        .filter(|r| {
+            r.level == wall.level
+                && r.points.len() >= 3
+                && probes
+                    .iter()
+                    .any(|p| newera_core::electrical::inside_room(&r.points, *p, 0.0))
+        })
+        .map(|r| r.name.as_str())
+        .filter(|n| !n.is_empty())
+        .collect()
+}
+
+/// Page heading: `Kitchen · w12  400x250 cm`, or just the wall when no room.
+fn wall_heading(home: &Home, wall: &Wall, len: &str, height: &str) -> String {
+    let rooms = rooms_on_wall(home, wall);
+    if rooms.is_empty() {
+        format!("{}  {len}x{height} cm", wall.id)
+    } else {
+        format!("{} / {}  {len}x{height} cm", rooms.join(" / "), wall.id)
+    }
+}
+
+/// Title-block line: `Home / Kitchen / w12`.
+pub fn wall_page_title(home: &Home, wall: &Wall, project: &str) -> String {
+    let rooms = rooms_on_wall(home, wall);
+    if rooms.is_empty() {
+        format!("{project} / {}", wall.id)
+    } else {
+        format!("{project} / {} / {}", rooms.join(" / "), wall.id)
+    }
 }
 
 fn unique_stations(mut values: Vec<f64>, end: f64) -> Vec<f64> {
