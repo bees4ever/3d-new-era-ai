@@ -1079,6 +1079,11 @@ fn translations(pt: &str) -> Option<[&'static str; 3]> {
             "PDF (A3, ajustado a la hoja)…",
             "PDF (A3, ajusté à la feuille)…",
         ],
+        "PDF (A4, uma parede por folha)…" => [
+            "PDF (A4, one wall per page)…",
+            "PDF (A4, una pared por hoja)…",
+            "PDF (A4, un mur par page)…",
+        ],
         "PDF 1:100…" => ["PDF 1:100…", "PDF 1:100…", "PDF 1:100…"],
         "PDF 1:50…" => ["PDF 1:50…", "PDF 1:50…", "PDF 1:50…"],
         "PNG…" => ["PNG…", "PNG…", "PNG…"],

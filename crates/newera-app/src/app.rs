@@ -1023,7 +1023,7 @@ impl NewEraApp {
     }
 
     /// Writes the selected walls, or every wall of this storey, without MCP.
-    fn export_walls(&mut self, ext: &str) {
+    fn export_walls(&mut self, kind: &str) {
         let selected: Vec<newera_core::WallId> = self
             .selection
             .iter()
@@ -1036,7 +1036,7 @@ impl NewEraApp {
             let doc = self.document.read();
             (doc.home().name.clone(), doc.home().clone())
         };
-        let walls = if ext == "pdf" {
+        let walls = if kind.starts_with("pdf") {
             home.walls.clone()
         } else {
             newera_core::walls_to_export(&home, &selected)
@@ -1044,18 +1044,19 @@ impl NewEraApp {
         if walls.is_empty() {
             return self.set_status(crate::i18n::tr("Nenhuma parede para exportar."));
         }
-        let ext_owned = ext.to_owned();
-        let title = (ext == "pdf").then(|| format!("{name} — paredes"));
-        let make = move || match title {
-            Some(title) => Ok(newera_draw::walls_to_pdf(
-                &home,
-                &walls,
-                &newera_draw::PdfOptions {
-                    title,
-                    ..newera_draw::PdfOptions::default()
-                },
-            )),
-            None => newera_core::walls_bytes(&walls, &ext_owned),
+        let ext = if kind.starts_with("pdf") { "pdf" } else { kind };
+        let kind = kind.to_owned();
+        let title = format!("{name} — paredes");
+        let make = move || {
+            let options = newera_draw::PdfOptions {
+                title,
+                ..newera_draw::PdfOptions::default()
+            };
+            match kind.as_str() {
+                "pdf" => Ok(newera_draw::walls_to_pdf(&home, &walls, &options)),
+                "pdf-a4" => Ok(newera_draw::walls_to_a4_pdf(&home, &walls, &options)),
+                other => newera_core::walls_bytes(&walls, other),
+            }
         };
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -1754,6 +1755,12 @@ impl NewEraApp {
                             .clicked()
                         {
                             self.export_walls("pdf");
+                        }
+                        if ui
+                            .button(crate::i18n::tr("PDF (A4, uma parede por folha)…"))
+                            .clicked()
+                        {
+                            self.export_walls("pdf-a4");
                         }
                         if ui.button(crate::i18n::tr("CSV (planilha)…")).clicked() {
                             self.export_walls("csv");
@@ -3199,6 +3206,7 @@ mod tests {
         h.get_by_label_contains("Exportar paredes").click();
         h.run_steps(3);
         h.get_by_label_contains("PDF (A3");
+        h.get_by_label_contains("PDF (A4");
         h.get_by_label_contains("CSV (planilha)");
         h.get_by_label_contains("DXF (CAD)");
         h.get_by_label("JSON…");

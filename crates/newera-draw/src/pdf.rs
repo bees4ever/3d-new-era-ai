@@ -8,6 +8,9 @@ use newera_core::{Home, Point2, Wall};
 
 use crate::scene::{Align, Color, Primitive, Scene, Size, wall_elevations_scene};
 
+/// A4 portrait, centimeters.
+const A4_CM: [f64; 2] = [21.0, 29.7];
+
 /// Points per centimeter of paper.
 const PT_PER_CM: f64 = 72.0 / 2.54;
 
@@ -82,9 +85,9 @@ fn rgb(c: Color) -> (f64, f64, f64) {
     (f(c.0[0]), f(c.0[1]), f(c.0[2]))
 }
 
-/// Renders the scene to PDF bytes.
+/// Content stream of one page: the scene, fitted, plus the title block.
 #[allow(clippy::too_many_lines)]
-pub fn to_pdf(scene: &Scene, options: &PdfOptions) -> Vec<u8> {
+fn page_stream(scene: &Scene, options: &PdfOptions) -> String {
     let [paper_w, paper_h] = options.paper_cm.map(|v| v * PT_PER_CM);
     let margin = options.margin_cm * PT_PER_CM;
     let title_h = 1.2 * PT_PER_CM;
@@ -188,7 +191,6 @@ pub fn to_pdf(scene: &Scene, options: &PdfOptions) -> Vec<u8> {
         }
     }
 
-    // Title block.
     let scale_text = options.scale.map_or_else(
         || format!("Escala aprox. 1:{:.0}", PT_PER_CM / scale),
         |d| format!("Escala 1:{d:.0}"),
@@ -205,22 +207,44 @@ pub fn to_pdf(scene: &Scene, options: &PdfOptions) -> Vec<u8> {
         margin + 4.0,
         escape(&win_ansi(&format!("{scale_text} · 3D New Era AI"))),
     );
+    content
+}
 
-    let objects = [
+fn pdf_from_pages(streams: &[String], options: &PdfOptions) -> Vec<u8> {
+    debug_assert!(!streams.is_empty());
+    let [paper_w, paper_h] = options.paper_cm.map(|v| v * PT_PER_CM);
+    let n = streams.len();
+    let first_page = 3;
+    let font1 = first_page + n * 2;
+    let font2 = font1 + 1;
+    let kids: String = (0..n)
+        .map(|i| format!("{} 0 R", first_page + i * 2))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut objects = vec![
         "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
-        format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {paper_w:.2} {paper_h:.2}] /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> /Contents 4 0 R >>"
-        ),
-        format!(
+        format!("<< /Type /Pages /Kids [{kids}] /Count {n} >>"),
+    ];
+    for (i, content) in streams.iter().enumerate() {
+        let page_id = first_page + i * 2;
+        let content_id = page_id + 1;
+        objects.push(format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {paper_w:.2} {paper_h:.2}] /Resources << /Font << /F1 {font1} 0 R /F2 {font2} 0 R >> >> /Contents {content_id} 0 R >>"
+        ));
+        objects.push(format!(
             "<< /Length {} >>\nstream\n{content}endstream",
             content.len()
-        ),
+        ));
+    }
+    objects.push(
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
             .to_owned(),
+    );
+    objects.push(
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>"
             .to_owned(),
-    ];
+    );
+
     let mut out = b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n".to_vec();
     let mut offsets = Vec::with_capacity(objects.len());
     for (i, body) in objects.iter().enumerate() {
@@ -239,6 +263,33 @@ pub fn to_pdf(scene: &Scene, options: &PdfOptions) -> Vec<u8> {
     );
     out.extend_from_slice(table.as_bytes());
     out
+}
+
+/// Renders the scene to PDF bytes.
+pub fn to_pdf(scene: &Scene, options: &PdfOptions) -> Vec<u8> {
+    pdf_from_pages(&[page_stream(scene, options)], options)
+}
+
+/// One wall per A4 portrait page, fitted, openings cut out.
+pub fn walls_to_a4_pdf(home: &Home, walls: &[Wall], options: &PdfOptions) -> Vec<u8> {
+    let mut page = options.clone();
+    page.paper_cm = A4_CM;
+    let streams: Vec<String> = if walls.is_empty() {
+        vec![page_stream(&Scene::default(), &page)]
+    } else {
+        walls
+            .iter()
+            .map(|wall| {
+                let mut one = page.clone();
+                one.title = format!("{} / {}", options.title, wall.id);
+                page_stream(
+                    &wall_elevations_scene(home, std::slice::from_ref(wall)),
+                    &one,
+                )
+            })
+            .collect()
+    };
+    pdf_from_pages(&streams, &page)
 }
 
 /// A3 PDF of every wall as an elevation (length x height), openings cut out.
@@ -343,5 +394,38 @@ mod tests {
         assert!(text.contains(&format!("{ground}  400x250 cm")));
         assert!(text.contains(&format!("{upstairs}  300x250 cm")));
         assert!(!text.contains("not a wall"));
+    }
+
+    #[test]
+    fn walls_a4_pdf_is_one_portrait_page_per_wall() {
+        let mut home = Home::default();
+        let a = home.new_wall_id();
+        home.walls
+            .push(Wall::new(a, Point2::new(0.0, 0.0), Point2::new(400.0, 0.0)));
+        let b = home.new_wall_id();
+        home.walls
+            .push(Wall::new(b, Point2::new(0.0, 0.0), Point2::new(300.0, 0.0)));
+        let pdf = walls_to_a4_pdf(
+            &home,
+            &home.walls,
+            &PdfOptions {
+                title: "Casa".into(),
+                ..PdfOptions::default()
+            },
+        );
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.starts_with("%PDF-1.4"));
+        assert!(text.contains("/Count 2"));
+        assert!(
+            text.contains("595.28") && text.contains("841.89"),
+            "{text:.80}"
+        );
+        assert!(text.contains(&format!("Casa / {a}")));
+        assert!(text.contains(&format!("Casa / {b}")));
+        assert!(text.contains(&format!("{a}  400x250 cm")));
+        assert!(text.contains(&format!("{b}  300x250 cm")));
+        let start = text.rfind("startxref\n").unwrap() + 10;
+        let offset: usize = text[start..].lines().next().unwrap().parse().unwrap();
+        assert!(pdf[offset..].starts_with(b"xref"));
     }
 }
