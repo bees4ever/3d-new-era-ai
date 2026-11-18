@@ -9,8 +9,8 @@ use std::sync::atomic::{AtomicU8, Ordering};
 pub(crate) enum Lang {
     /// Portuguese (Brazil): the language the texts are written in, so it
     /// needs no table.
-    #[default]
     Pt,
+    #[default]
     En,
     Es,
     Fr,
@@ -917,7 +917,21 @@ fn translations(pt: &str) -> Option<[&'static str; 3]> {
         "Excluir andar" => ["Delete storey", "Eliminar planta", "Supprimer l'étage"],
         "Exibir" => ["Show", "Ver", "Afficher"],
         "Exportar 3D" => ["Export 3D", "Exportar 3D", "Exporter la 3D"],
+        "Export walls" => ["Export walls", "Exportar paredes", "Exporter les murs"],
+        "Exportar paredes" => ["Export walls", "Exportar paredes", "Exporter les murs"],
         "Exportar planta" => ["Export plan", "Exportar plano", "Exporter le plan"],
+        "CSV (spreadsheet)…" => [
+            "CSV (spreadsheet)…",
+            "CSV (hoja de cálculo)…",
+            "CSV (tableur)…",
+        ],
+        "CSV (planilha)…" => [
+            "CSV (spreadsheet)…",
+            "CSV (hoja de cálculo)…",
+            "CSV (tableur)…",
+        ],
+        "DXF (CAD)…" => ["DXF (CAD)…", "DXF (CAD)…", "DXF (CAO)…"],
+        "JSON…" => ["JSON…", "JSON…", "JSON…"],
         "Fechada" => ["Closed", "Cerrada", "Fermée"],
         "Fechar" => ["Close", "Cerrar", "Fermer"],
         "Fechar versão" => ["Close version", "Cerrar versión", "Fermer la version"],
@@ -1066,10 +1080,25 @@ fn translations(pt: &str) -> Option<[&'static str; 3]> {
             "Orden (misma elevación)",
             "Ordre (même élévation)",
         ],
+        "PDF (A3, fit to sheet)…" => [
+            "PDF (A3, fit to sheet)…",
+            "PDF (A3, ajustado a la hoja)…",
+            "PDF (A3, ajusté à la feuille)…",
+        ],
         "PDF (A3, ajustado à folha)…" => [
             "PDF (A3, fit to sheet)…",
             "PDF (A3, ajustado a la hoja)…",
             "PDF (A3, ajusté à la feuille)…",
+        ],
+        "PDF (A4, one wall per page)…" => [
+            "PDF (A4, one wall per page)…",
+            "PDF (A4, una pared por hoja)…",
+            "PDF (A4, un mur par page)…",
+        ],
+        "PDF (A4, uma parede por folha)…" => [
+            "PDF (A4, one wall per page)…",
+            "PDF (A4, una pared por hoja)…",
+            "PDF (A4, un mur par page)…",
         ],
         "PDF 1:100…" => ["PDF 1:100…", "PDF 1:100…", "PDF 1:100…"],
         "PDF 1:50…" => ["PDF 1:50…", "PDF 1:50…", "PDF 1:50…"],
@@ -1313,6 +1342,16 @@ fn translations(pt: &str) -> Option<[&'static str; 3]> {
             "Plan exported to {}",
             "Plano exportado a {}",
             "Plan exporté vers {}",
+        ],
+        "Paredes exportadas para {}" => [
+            "Walls exported to {}",
+            "Paredes exportadas a {}",
+            "Murs exportés vers {}",
+        ],
+        "Nenhuma parede para exportar." => [
+            "No walls to export.",
+            "No hay paredes para exportar.",
+            "Aucun mur à exporter.",
         ],
         "⚠ Imagem inválida: {}" => [
             "⚠ Invalid image: {}",

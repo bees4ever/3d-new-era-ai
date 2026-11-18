@@ -245,7 +245,7 @@ impl NewEraApp {
             if settings.english {
                 crate::i18n::Lang::En
             } else if first_run {
-                crate::i18n::Lang::from_system().unwrap_or_default()
+                crate::i18n::Lang::from_system().unwrap_or(crate::i18n::Lang::En)
             } else {
                 crate::i18n::Lang::Pt
             }
@@ -1022,6 +1022,73 @@ impl NewEraApp {
         }
     }
 
+    /// Writes the selected walls, or every wall of this storey, without MCP.
+    fn export_walls(&mut self, kind: &str) {
+        let selected: Vec<newera_core::WallId> = self
+            .selection
+            .iter()
+            .filter_map(|id| match id {
+                ElementId::Wall(wall) => Some(*wall),
+                _ => None,
+            })
+            .collect();
+        let (name, home) = {
+            let doc = self.document.read();
+            (doc.home().name.clone(), doc.home().clone())
+        };
+        let walls = if kind.starts_with("pdf") {
+            home.walls.clone()
+        } else {
+            newera_core::walls_to_export(&home, &selected)
+        };
+        if walls.is_empty() {
+            return self.set_status(crate::i18n::tr("Nenhuma parede para exportar."));
+        }
+        let ext = if kind.starts_with("pdf") { "pdf" } else { kind };
+        let kind = kind.to_owned();
+        let title = crate::i18n::shown(&name);
+        let make = move || {
+            let options = newera_draw::PdfOptions {
+                title,
+                ..newera_draw::PdfOptions::default()
+            };
+            match kind.as_str() {
+                "pdf" => Ok(newera_draw::walls_to_pdf(&home, &walls, &options)),
+                "pdf-a4" => Ok(newera_draw::walls_to_a4_pdf(&home, &walls, &options)),
+                other => newera_core::walls_bytes(&walls, other),
+            }
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let dialog =
+                crate::files::save_dialog(&ext.to_uppercase(), ext, &format!("{name}.{ext}"));
+            self.ask_file(dialog, move |app, path| {
+                let Some(path) = path else {
+                    return;
+                };
+                match make()
+                    .and_then(|bytes| std::fs::write(&path, bytes).map_err(|e| e.to_string()))
+                {
+                    Ok(()) => app.set_status(crate::i18n::fill(
+                        "Paredes exportadas para {}",
+                        &[&path.display()],
+                    )),
+                    Err(err) => {
+                        app.set_status(crate::i18n::fill("⚠ Falha ao exportar: {}", &[&err]));
+                    }
+                }
+            });
+        }
+        #[cfg(target_arch = "wasm32")]
+        match crate::files::save_bytes(&ext.to_uppercase(), ext, &format!("{name}.{ext}"), make) {
+            Ok(Some(path)) => {
+                self.set_status(crate::i18n::fill("Paredes exportadas para {}", &[&path]));
+            }
+            Ok(None) => {}
+            Err(err) => self.set_status(crate::i18n::fill("⚠ Falha ao exportar: {}", &[&err])),
+        }
+    }
+
     /// Imports an OBJ/glTF file as a piece at its natural size, placed at
     /// the middle of the plan view.
     #[cfg(target_arch = "wasm32")]
@@ -1677,6 +1744,32 @@ impl NewEraApp {
                         }
                         if ui.button(crate::i18n::tr("OBJ + MTL…")).clicked() {
                             self.export_3d("obj");
+                        }
+                    },
+                );
+                ui.menu_button(
+                    format!("{} {}", icon::WALL, crate::i18n::tr("Export walls")),
+                    |ui| {
+                        if ui
+                            .button(crate::i18n::tr("PDF (A3, fit to sheet)…"))
+                            .clicked()
+                        {
+                            self.export_walls("pdf");
+                        }
+                        if ui
+                            .button(crate::i18n::tr("PDF (A4, one wall per page)…"))
+                            .clicked()
+                        {
+                            self.export_walls("pdf-a4");
+                        }
+                        if ui.button(crate::i18n::tr("CSV (spreadsheet)…")).clicked() {
+                            self.export_walls("csv");
+                        }
+                        if ui.button(crate::i18n::tr("DXF (CAD)…")).clicked() {
+                            self.export_walls("dxf");
+                        }
+                        if ui.button(crate::i18n::tr("JSON…")).clicked() {
+                            self.export_walls("json");
                         }
                     },
                 );
@@ -3103,6 +3196,20 @@ mod tests {
         h.run_steps(3);
         assert!(h.query_by_label("Agora não").is_none());
         assert!(!h.state().support_ask);
+    }
+
+    #[test]
+    fn the_file_menu_exports_walls_without_mcp() {
+        let mut h = app_with_wall();
+        h.get_by_label("Arquivo").click();
+        h.run_steps(3);
+        h.get_by_label_contains("Export walls").click();
+        h.run_steps(3);
+        h.get_by_label_contains("PDF (A3, fit to sheet)");
+        h.get_by_label_contains("PDF (A4, one wall per page)");
+        h.get_by_label_contains("CSV (spreadsheet)");
+        h.get_by_label_contains("DXF (CAD)");
+        h.get_by_label("JSON…");
     }
 
     #[test]

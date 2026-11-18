@@ -6,11 +6,11 @@ mod raster;
 mod scene;
 mod svg;
 
-pub use pdf::{PdfOptions, to_pdf};
+pub use pdf::{PdfOptions, to_pdf, walls_to_a4_pdf, walls_to_pdf};
 pub use raster::{RenderError, RenderOptions, Viewport, render_pixmap, render_png};
 pub use scene::{
     Align, Color, EM_TO_HEIGHT, FillTexture, Item, Palette, PieceImageFn, PieceImages, Primitive,
     Scene, SceneOptions, Size, TextLook, compass_items, dimension_items, discipline_color,
-    furniture_items, plan_scene,
+    furniture_items, plan_scene, wall_elevations_scene, wall_page_title,
 };
 pub use svg::{SvgOptions, to_svg};

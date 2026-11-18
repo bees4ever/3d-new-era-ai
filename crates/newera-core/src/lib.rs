@@ -47,6 +47,7 @@ pub mod text;
 mod units;
 pub mod vfs;
 pub mod vocabulary;
+mod wall_export;
 mod wallrun;
 pub mod wifi;
 
@@ -105,4 +106,5 @@ pub use style::{
     TextStyle, VideoSettings,
 };
 pub use units::LengthUnit;
+pub use wall_export::{walls_bytes, walls_csv, walls_dxf, walls_json, walls_to_export};
 pub use wallrun::{RunBlock, RunObstacle, WallRun, wall_run};

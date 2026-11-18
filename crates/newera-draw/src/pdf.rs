@@ -4,9 +4,12 @@
 
 use std::fmt::Write as _;
 
-use newera_core::Point2;
+use newera_core::{Home, Point2, Wall};
 
-use crate::scene::{Align, Color, Primitive, Scene, Size};
+use crate::scene::{Align, Color, Primitive, Scene, Size, wall_elevations_scene, wall_page_title};
+
+/// A4 portrait, centimeters.
+const A4_CM: [f64; 2] = [21.0, 29.7];
 
 /// Points per centimeter of paper.
 const PT_PER_CM: f64 = 72.0 / 2.54;
@@ -82,9 +85,9 @@ fn rgb(c: Color) -> (f64, f64, f64) {
     (f(c.0[0]), f(c.0[1]), f(c.0[2]))
 }
 
-/// Renders the scene to PDF bytes.
+/// Content stream of one page: the scene, fitted, plus the title block.
 #[allow(clippy::too_many_lines)]
-pub fn to_pdf(scene: &Scene, options: &PdfOptions) -> Vec<u8> {
+fn page_stream(scene: &Scene, options: &PdfOptions) -> String {
     let [paper_w, paper_h] = options.paper_cm.map(|v| v * PT_PER_CM);
     let margin = options.margin_cm * PT_PER_CM;
     let title_h = 1.2 * PT_PER_CM;
@@ -188,10 +191,9 @@ pub fn to_pdf(scene: &Scene, options: &PdfOptions) -> Vec<u8> {
         }
     }
 
-    // Title block.
     let scale_text = options.scale.map_or_else(
-        || format!("Escala aprox. 1:{:.0}", PT_PER_CM / scale),
-        |d| format!("Escala 1:{d:.0}"),
+        || format!("Scale approx. 1:{:.0}", PT_PER_CM / scale),
+        |d| format!("Scale 1:{d:.0}"),
     );
     let _ = writeln!(
         content,
@@ -205,22 +207,44 @@ pub fn to_pdf(scene: &Scene, options: &PdfOptions) -> Vec<u8> {
         margin + 4.0,
         escape(&win_ansi(&format!("{scale_text} · 3D New Era AI"))),
     );
+    content
+}
 
-    let objects = [
+fn pdf_from_pages(streams: &[String], options: &PdfOptions) -> Vec<u8> {
+    debug_assert!(!streams.is_empty());
+    let [paper_w, paper_h] = options.paper_cm.map(|v| v * PT_PER_CM);
+    let n = streams.len();
+    let first_page = 3;
+    let font1 = first_page + n * 2;
+    let font2 = font1 + 1;
+    let kids: String = (0..n)
+        .map(|i| format!("{} 0 R", first_page + i * 2))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut objects = vec![
         "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
-        format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {paper_w:.2} {paper_h:.2}] /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> /Contents 4 0 R >>"
-        ),
-        format!(
+        format!("<< /Type /Pages /Kids [{kids}] /Count {n} >>"),
+    ];
+    for (i, content) in streams.iter().enumerate() {
+        let page_id = first_page + i * 2;
+        let content_id = page_id + 1;
+        objects.push(format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {paper_w:.2} {paper_h:.2}] /Resources << /Font << /F1 {font1} 0 R /F2 {font2} 0 R >> >> /Contents {content_id} 0 R >>"
+        ));
+        objects.push(format!(
             "<< /Length {} >>\nstream\n{content}endstream",
             content.len()
-        ),
+        ));
+    }
+    objects.push(
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
             .to_owned(),
+    );
+    objects.push(
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>"
             .to_owned(),
-    ];
+    );
+
     let mut out = b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n".to_vec();
     let mut offsets = Vec::with_capacity(objects.len());
     for (i, body) in objects.iter().enumerate() {
@@ -241,11 +265,43 @@ pub fn to_pdf(scene: &Scene, options: &PdfOptions) -> Vec<u8> {
     out
 }
 
+/// Renders the scene to PDF bytes.
+pub fn to_pdf(scene: &Scene, options: &PdfOptions) -> Vec<u8> {
+    pdf_from_pages(&[page_stream(scene, options)], options)
+}
+
+/// One wall per A4 portrait page, fitted, openings cut out.
+pub fn walls_to_a4_pdf(home: &Home, walls: &[Wall], options: &PdfOptions) -> Vec<u8> {
+    let mut page = options.clone();
+    page.paper_cm = A4_CM;
+    let streams: Vec<String> = if walls.is_empty() {
+        vec![page_stream(&Scene::default(), &page)]
+    } else {
+        walls
+            .iter()
+            .map(|wall| {
+                let mut one = page.clone();
+                one.title = wall_page_title(home, wall, &options.title);
+                page_stream(
+                    &wall_elevations_scene(home, std::slice::from_ref(wall)),
+                    &one,
+                )
+            })
+            .collect()
+    };
+    pdf_from_pages(&streams, &page)
+}
+
+/// A3 PDF of every wall as an elevation (length x height), openings cut out.
+pub fn walls_to_pdf(home: &Home, walls: &[Wall], options: &PdfOptions) -> Vec<u8> {
+    to_pdf(&wall_elevations_scene(home, walls), options)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::scene::{SceneOptions, plan_scene};
-    use newera_core::{Home, Label, Room, Wall};
+    use newera_core::{Furniture, Home, Label, Level, LevelId, Room, Wall};
 
     #[test]
     fn writes_a_structurally_valid_pdf_with_accents() {
@@ -285,10 +341,174 @@ mod tests {
         // "ô" (0xF4) and "—" (0x97) in WinAnsi, parentheses escaped.
         assert!(text.contains(r"C\364modo \227 \341rea"), "accents encoded");
         assert!(text.contains(r"Tomada \(baixa\)"));
-        assert!(text.contains("Escala 1:50"));
+        assert!(text.contains("Scale 1:50"));
         // The xref offset points at the table.
         let start = text.rfind("startxref\n").unwrap() + 10;
         let offset: usize = text[start..].lines().next().unwrap().parse().unwrap();
         assert!(pdf[offset..].starts_with(b"xref"));
+    }
+
+    #[test]
+    fn walls_pdf_is_an_elevation_of_every_wall() {
+        let mut home = Home::default();
+        home.levels.push(Level {
+            id: LevelId(1),
+            name: "0".into(),
+            elevation: 0.0,
+            ..Level::default()
+        });
+        home.levels.push(Level {
+            id: LevelId(2),
+            name: "1".into(),
+            elevation: 280.0,
+            ..Level::default()
+        });
+        let ground = home.new_wall_id();
+        home.walls.push(Wall::new(
+            ground,
+            Point2::new(0.0, 0.0),
+            Point2::new(400.0, 0.0),
+        ));
+        let upstairs = home.new_wall_id();
+        let mut upper = Wall::new(upstairs, Point2::new(0.0, 0.0), Point2::new(300.0, 0.0));
+        upper.level = Some(LevelId(2));
+        home.walls.push(upper);
+        let label_id = home.new_label_id();
+        home.labels.push(Label {
+            id: label_id,
+            text: "not a wall".into(),
+            position: Point2::new(100.0, 100.0),
+            ..Label::default()
+        });
+        let pdf = walls_to_pdf(
+            &home,
+            &home.walls,
+            &PdfOptions {
+                title: "Paredes".into(),
+                ..PdfOptions::default()
+            },
+        );
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.starts_with("%PDF-1.4"));
+        assert!(text.contains("Paredes"));
+        assert!(text.contains(&format!("{ground}  400x250 cm")));
+        assert!(text.contains(&format!("{upstairs}  300x250 cm")));
+        assert!(!text.contains("not a wall"));
+    }
+
+    #[test]
+    fn walls_a4_pdf_is_one_portrait_page_per_wall() {
+        let mut home = Home::default();
+        let a = home.new_wall_id();
+        home.walls
+            .push(Wall::new(a, Point2::new(0.0, 0.0), Point2::new(400.0, 0.0)));
+        let b = home.new_wall_id();
+        home.walls
+            .push(Wall::new(b, Point2::new(0.0, 0.0), Point2::new(300.0, 0.0)));
+        let pdf = walls_to_a4_pdf(
+            &home,
+            &home.walls,
+            &PdfOptions {
+                title: "Casa".into(),
+                ..PdfOptions::default()
+            },
+        );
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.starts_with("%PDF-1.4"));
+        assert!(text.contains("/Count 2"));
+        assert!(
+            text.contains("595.28") && text.contains("841.89"),
+            "{text:.80}"
+        );
+        assert!(text.contains(&format!("Casa / {a}")));
+        assert!(text.contains(&format!("Casa / {b}")));
+        assert!(text.contains(&format!("{a}  400x250 cm")));
+        assert!(text.contains(&format!("{b}  300x250 cm")));
+        let start = text.rfind("startxref\n").unwrap() + 10;
+        let offset: usize = text[start..].lines().next().unwrap().parse().unwrap();
+        assert!(pdf[offset..].starts_with(b"xref"));
+    }
+
+    #[test]
+    fn walls_pdf_names_the_outlet_and_its_height() {
+        let mut home = Home::default();
+        let wall = Wall::new(
+            home.new_wall_id(),
+            Point2::new(0.0, 0.0),
+            Point2::new(400.0, 0.0),
+        );
+        home.walls.push(wall);
+        let outlet_id = home.new_furniture_id();
+        home.furniture.push(Furniture {
+            id: outlet_id,
+            catalog: "outlet-low".into(),
+            name: "Tomada baixa".into(),
+            position: Point2::new(120.0, 7.5),
+            elevation: 30.0,
+            width: 10.0,
+            depth: 4.0,
+            height: 10.0,
+            ..Furniture::default()
+        });
+        let pdf = walls_to_a4_pdf(
+            &home,
+            &home.walls,
+            &PdfOptions {
+                title: "Casa".into(),
+                ..PdfOptions::default()
+            },
+        );
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("Tomada baixa"), "{text}");
+        assert!(text.contains("120 / 35"), "{text}");
+        assert!(text.contains("from start / from floor"), "{text}");
+    }
+
+    #[test]
+    fn walls_a4_pdf_heading_has_the_room_and_ceiling_lamps() {
+        let mut home = Home::default();
+        let pts = [(0.0, 0.0), (400.0, 0.0), (400.0, 300.0), (0.0, 300.0)];
+        let wall_ids: Vec<_> = (0..4).map(|_| home.new_wall_id()).collect();
+        for i in 0..4 {
+            let (a, b) = (pts[i], pts[(i + 1) % 4]);
+            home.walls.push(Wall::new(
+                wall_ids[i],
+                Point2::new(a.0, a.1),
+                Point2::new(b.0, b.1),
+            ));
+        }
+        let room_id = home.new_room_id();
+        home.rooms.push(Room::new(
+            room_id,
+            "Kitchen",
+            pts.iter().map(|&(x, y)| Point2::new(x, y)).collect(),
+        ));
+        let lamp_id = home.new_furniture_id();
+        home.furniture.push(Furniture {
+            id: lamp_id,
+            catalog: "light-ceiling".into(),
+            name: "Pendant".into(),
+            position: Point2::new(200.0, 150.0),
+            elevation: 244.0,
+            width: 20.0,
+            depth: 20.0,
+            height: 6.0,
+            ..Furniture::default()
+        });
+        let pdf = walls_to_a4_pdf(
+            &home,
+            &home.walls,
+            &PdfOptions {
+                title: "Casa".into(),
+                ..PdfOptions::default()
+            },
+        );
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("Casa / Kitchen /"), "{text}");
+        assert!(text.contains("Kitchen / "), "{text}");
+        assert!(text.contains("Pendant"), "{text}");
+        assert!(text.contains("Scale approx."), "{text}");
+        assert!(!text.contains("Escala"), "{text}");
+        assert!(!text.contains("paredes"), "{text}");
     }
 }
