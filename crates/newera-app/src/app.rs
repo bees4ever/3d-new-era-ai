@@ -1036,12 +1036,16 @@ impl NewEraApp {
             let doc = self.document.read();
             (doc.home().name.clone(), doc.home().clone())
         };
-        let walls = newera_core::walls_to_export(&home, &selected);
+        let walls = if ext == "pdf" {
+            home.walls.clone()
+        } else {
+            newera_core::walls_to_export(&home, &selected)
+        };
         if walls.is_empty() {
             return self.set_status(crate::i18n::tr("Nenhuma parede para exportar."));
         }
         let ext_owned = ext.to_owned();
-        let title = (ext == "pdf").then(|| name.clone());
+        let title = (ext == "pdf").then(|| format!("{name} — paredes"));
         let make = move || match title {
             Some(title) => Ok(newera_draw::walls_to_pdf(
                 &home,

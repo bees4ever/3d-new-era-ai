@@ -2,12 +2,11 @@
 //! page, with a small title block. Written by hand: PDF 1.4, the standard
 //! Helvetica fonts (`WinAnsi` encoding) and uncompressed content.
 
-use std::collections::HashSet;
 use std::fmt::Write as _;
 
 use newera_core::{Home, Point2, Wall};
 
-use crate::scene::{Align, Color, Primitive, Scene, SceneOptions, Size, plan_scene};
+use crate::scene::{Align, Color, Primitive, Scene, Size, wall_elevations_scene};
 
 /// Points per centimeter of paper.
 const PT_PER_CM: f64 = 72.0 / 2.54;
@@ -242,34 +241,16 @@ pub fn to_pdf(scene: &Scene, options: &PdfOptions) -> Vec<u8> {
     out
 }
 
-/// A3 PDF of `walls` (and the doors and windows that cut them), nothing else.
+/// A3 PDF of every wall as an elevation (length x height), openings cut out.
 pub fn walls_to_pdf(home: &Home, walls: &[Wall], options: &PdfOptions) -> Vec<u8> {
-    let keep: HashSet<_> = walls.iter().map(|wall| wall.id).collect();
-    let mut sheet = home.clone();
-    sheet.walls.retain(|wall| keep.contains(&wall.id));
-    sheet.rooms.clear();
-    sheet.polylines.clear();
-    sheet.dimensions.clear();
-    sheet.labels.clear();
-    sheet.background = None;
-    for level in &mut sheet.levels {
-        level.background = None;
-    }
-    sheet.compass.visible = false;
-    let openings: HashSet<_> = newera_core::wall_cuts(&sheet.walls, &sheet.furniture)
-        .into_iter()
-        .flatten()
-        .map(|cut| cut.furniture)
-        .collect();
-    sheet.furniture.retain(|piece| openings.contains(&piece.id));
-    to_pdf(&plan_scene(&sheet, &SceneOptions::default()), options)
+    to_pdf(&wall_elevations_scene(home, walls), options)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::scene::{SceneOptions, plan_scene};
-    use newera_core::{Home, Label, Room, Wall};
+    use newera_core::{Home, Label, Level, LevelId, Room, Wall};
 
     #[test]
     fn writes_a_structurally_valid_pdf_with_accents() {
@@ -317,14 +298,30 @@ mod tests {
     }
 
     #[test]
-    fn walls_pdf_is_a_pdf_of_those_walls_only() {
+    fn walls_pdf_is_an_elevation_of_every_wall() {
         let mut home = Home::default();
-        let wall_id = home.new_wall_id();
+        home.levels.push(Level {
+            id: LevelId(1),
+            name: "0".into(),
+            elevation: 0.0,
+            ..Level::default()
+        });
+        home.levels.push(Level {
+            id: LevelId(2),
+            name: "1".into(),
+            elevation: 280.0,
+            ..Level::default()
+        });
+        let ground = home.new_wall_id();
         home.walls.push(Wall::new(
-            wall_id,
+            ground,
             Point2::new(0.0, 0.0),
             Point2::new(400.0, 0.0),
         ));
+        let upstairs = home.new_wall_id();
+        let mut upper = Wall::new(upstairs, Point2::new(0.0, 0.0), Point2::new(300.0, 0.0));
+        upper.level = Some(LevelId(2));
+        home.walls.push(upper);
         let label_id = home.new_label_id();
         home.labels.push(Label {
             id: label_id,
@@ -343,6 +340,8 @@ mod tests {
         let text = String::from_utf8_lossy(&pdf);
         assert!(text.starts_with("%PDF-1.4"));
         assert!(text.contains("Paredes"));
+        assert!(text.contains(&format!("{ground}  400x250 cm")));
+        assert!(text.contains(&format!("{upstairs}  300x250 cm")));
         assert!(!text.contains("not a wall"));
     }
 }

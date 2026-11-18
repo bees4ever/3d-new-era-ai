@@ -14,7 +14,7 @@ fn n(v: f64) -> String {
     text.trim_end_matches('0').trim_end_matches('.').to_owned()
 }
 
-/// Walls to write: the selected ones, or every wall of the current storey.
+/// Walls to write: the selected ones, or every wall of the home.
 pub fn walls_to_export(home: &Home, selected: &[WallId]) -> Vec<Wall> {
     let picked: Vec<Wall> = home
         .walls
@@ -23,7 +23,7 @@ pub fn walls_to_export(home: &Home, selected: &[WallId]) -> Vec<Wall> {
         .cloned()
         .collect();
     if picked.is_empty() {
-        home.level_view(home.current_level()).walls
+        home.walls.clone()
     } else {
         picked
     }
@@ -152,7 +152,7 @@ mod tests {
     }
 
     #[test]
-    fn export_picks_the_selection_or_the_current_storey() {
+    fn export_picks_the_selection_or_every_wall() {
         let mut home = Home::new("casa");
         home.levels.push(crate::elements::Level {
             id: LevelId(1),
@@ -174,7 +174,7 @@ mod tests {
         let all = walls_to_export(&home, &[]);
         assert_eq!(
             all.iter().map(|w| w.id).collect::<Vec<_>>(),
-            vec![WallId(1)]
+            vec![WallId(1), WallId(2)]
         );
 
         let picked = walls_to_export(&home, &[WallId(2)]);

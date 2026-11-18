@@ -8,8 +8,8 @@ use std::collections::HashSet;
 
 use newera_catalog::{SymbolShape, plan_symbol};
 use newera_core::{
-    Compass, Dimension, ElementId, Furniture, Home, Label, LengthUnit, Point2, Room, cut_outline,
-    polygon_centroid, triangulate,
+    Compass, Dimension, ElementId, Furniture, Home, Label, LengthUnit, Point2, Room, Wall,
+    cut_outline, polygon_centroid, triangulate, wall_cuts,
 };
 
 /// Straight (non-premultiplied) RGBA color.
@@ -315,6 +315,82 @@ pub struct SceneOptions {
     pub show_background: bool,
     /// Top views drawn instead of symbols, for the pieces it returns.
     pub piece_images: Option<PieceImages>,
+}
+
+/// Elevations of `walls`, stacked: x along the wall, y down the sheet, cm.
+/// Ceiling at the top of each band, openings cut out, every wall of the list.
+pub fn wall_elevations_scene(home: &Home, walls: &[Wall]) -> Scene {
+    const GAP: f64 = 80.0;
+    const LABEL: f64 = 36.0;
+    let cuts = wall_cuts(walls, &home.furniture);
+    let palette = Palette::default();
+    let mut scene = Scene::default();
+    let mut y = 0.0;
+    for (i, wall) in walls.iter().enumerate() {
+        y += LABEL;
+        let h0 = wall.height.max(1.0);
+        let h1 = wall.height_at_end.unwrap_or(wall.height).max(1.0);
+        let band = h0.max(h1);
+        let len = wall.length().max(1.0);
+        let owner = Some(ElementId::from(wall.id));
+        let outline = [
+            Point2::new(0.0, y + band - h0),
+            Point2::new(len, y + band - h1),
+            Point2::new(len, y + band),
+            Point2::new(0.0, y + band),
+        ];
+        scene.fill(owner, &outline, palette.wall_background);
+        scene.push(
+            owner,
+            Primitive::Line {
+                points: outline.to_vec(),
+                closed: true,
+                color: palette.wall,
+                width: Size::Cm(2.0),
+            },
+        );
+        for cut in &cuts[i] {
+            let hole = [
+                Point2::new(cut.from, y + band - cut.top),
+                Point2::new(cut.to, y + band - cut.top),
+                Point2::new(cut.to, y + band - cut.bottom),
+                Point2::new(cut.from, y + band - cut.bottom),
+            ];
+            scene.fill(None, &hole, palette.paper);
+            scene.push(
+                None,
+                Primitive::Line {
+                    points: hole.to_vec(),
+                    closed: true,
+                    color: palette.wall,
+                    width: Size::Cm(1.2),
+                },
+            );
+        }
+        let cm = |v: f64| format!("{v:.0}");
+        let mut label = format!("{}  {}x{} cm", wall.id, cm(len), cm(h0));
+        if let Some(kind) = wall.wall_type.as_deref().filter(|s| !s.is_empty()) {
+            label.push(' ');
+            label.push_str(kind);
+        }
+        scene.push(
+            owner,
+            Primitive::Text {
+                text: label,
+                position: Point2::new(0.0, y - 8.0),
+                size: Size::Cm(18.0),
+                color: palette.label,
+                align: Align::BaselineLeft,
+                angle: 0.0,
+                look: TextLook {
+                    bold: true,
+                    ..TextLook::default()
+                },
+            },
+        );
+        y += band + GAP;
+    }
+    scene
 }
 
 /// Builds the plan scene. Draw order: background, rooms, furniture, walls
