@@ -8,8 +8,8 @@ use std::collections::HashSet;
 
 use newera_catalog::{SymbolShape, plan_symbol};
 use newera_core::{
-    Compass, Dimension, ElementId, Furniture, Home, Label, LengthUnit, Point2, Room, Wall,
-    cut_outline, polygon_centroid, triangulate, wall_cuts,
+    Compass, Dimension, DimensionId, ElementId, Furniture, Home, Label, LengthUnit, Point2, Room,
+    Wall, cut_outline, polygon_centroid, triangulate, wall_cuts,
 };
 
 /// Straight (non-premultiplied) RGBA color.
@@ -318,69 +318,135 @@ pub struct SceneOptions {
 }
 
 /// Elevations of `walls`, stacked: x along the wall, y down the sheet, cm.
-/// Ceiling at the top of each band, openings cut out, every wall of the list.
+/// Ceiling at the top of each band, openings cut out, wall points (outlets,
+/// switches, wall lights) and every dimension the installer needs.
 pub fn wall_elevations_scene(home: &Home, walls: &[Wall]) -> Scene {
-    const GAP: f64 = 80.0;
+    const GAP: f64 = 40.0;
     const LABEL: f64 = 36.0;
     let cuts = wall_cuts(walls, &home.furniture);
+    let fixtures = newera_core::mounting::wall_fixtures(walls, &home.furniture);
     let palette = Palette::default();
     let mut scene = Scene::default();
     let mut y = 0.0;
     for (i, wall) in walls.iter().enumerate() {
         y += LABEL;
-        let h0 = wall.height.max(1.0);
-        let h1 = wall.height_at_end.unwrap_or(wall.height).max(1.0);
-        let band = h0.max(h1);
-        let len = wall.length().max(1.0);
-        let owner = Some(ElementId::from(wall.id));
-        let outline = [
-            Point2::new(0.0, y + band - h0),
-            Point2::new(len, y + band - h1),
-            Point2::new(len, y + band),
-            Point2::new(0.0, y + band),
+        y += draw_wall_elevation(&mut scene, home, wall, &cuts[i], &fixtures[i], y, &palette);
+        y += GAP;
+    }
+    scene
+}
+
+fn draw_wall_elevation(
+    scene: &mut Scene,
+    home: &Home,
+    wall: &Wall,
+    cuts: &[newera_core::WallCut],
+    fixtures: &[newera_core::mounting::WallFixture],
+    y: f64,
+    palette: &Palette,
+) -> f64 {
+    let h0 = wall.height.max(1.0);
+    let h1 = wall.height_at_end.unwrap_or(wall.height).max(1.0);
+    let band = h0.max(h1);
+    let len = wall.length().max(1.0);
+    let floor_y = y + band;
+    let owner = Some(ElementId::from(wall.id));
+    let outline = [
+        Point2::new(0.0, floor_y - h0),
+        Point2::new(len, floor_y - h1),
+        Point2::new(len, floor_y),
+        Point2::new(0.0, floor_y),
+    ];
+    scene.fill(owner, &outline, palette.wall_background);
+    scene.push(
+        owner,
+        Primitive::Line {
+            points: outline.to_vec(),
+            closed: true,
+            color: palette.wall,
+            width: Size::Cm(2.0),
+        },
+    );
+    for cut in cuts {
+        let hole = [
+            Point2::new(cut.from, floor_y - cut.top),
+            Point2::new(cut.to, floor_y - cut.top),
+            Point2::new(cut.to, floor_y - cut.bottom),
+            Point2::new(cut.from, floor_y - cut.bottom),
         ];
-        scene.fill(owner, &outline, palette.wall_background);
+        scene.fill(None, &hole, palette.paper);
         scene.push(
-            owner,
+            None,
             Primitive::Line {
-                points: outline.to_vec(),
+                points: hole.to_vec(),
                 closed: true,
                 color: palette.wall,
-                width: Size::Cm(2.0),
+                width: Size::Cm(1.2),
             },
         );
-        for cut in &cuts[i] {
-            let hole = [
-                Point2::new(cut.from, y + band - cut.top),
-                Point2::new(cut.to, y + band - cut.top),
-                Point2::new(cut.to, y + band - cut.bottom),
-                Point2::new(cut.from, y + band - cut.bottom),
-            ];
-            scene.fill(None, &hole, palette.paper);
-            scene.push(
-                None,
-                Primitive::Line {
-                    points: hole.to_vec(),
-                    closed: true,
-                    color: palette.wall,
-                    width: Size::Cm(1.2),
-                },
-            );
-        }
+        let name = home
+            .furniture
+            .iter()
+            .flat_map(Furniture::flatten)
+            .find(|f| f.id == cut.furniture)
+            .map_or("opening", |f| f.name.as_str());
         let cm = |v: f64| format!("{v:.0}");
-        let mut label = format!("{}  {}x{} cm", wall.id, cm(len), cm(h0));
-        if let Some(kind) = wall.wall_type.as_deref().filter(|s| !s.is_empty()) {
-            label.push(' ');
-            label.push_str(kind);
-        }
         scene.push(
-            owner,
+            None,
             Primitive::Text {
-                text: label,
-                position: Point2::new(0.0, y - 8.0),
-                size: Size::Cm(18.0),
+                text: format!(
+                    "{name}\n{}x{} cm",
+                    cm(cut.to - cut.from),
+                    cm(cut.top - cut.bottom)
+                ),
+                position: Point2::new(
+                    f64::midpoint(cut.from, cut.to),
+                    floor_y - f64::midpoint(cut.bottom, cut.top),
+                ),
+                size: Size::Cm(10.0),
                 color: palette.label,
-                align: Align::BaselineLeft,
+                align: Align::Center,
+                angle: 0.0,
+                look: TextLook::default(),
+            },
+        );
+    }
+    let elec = discipline_color(newera_core::Discipline::Electrical);
+    let plum = discipline_color(newera_core::Discipline::Plumbing);
+    for (n, fix) in fixtures.iter().enumerate() {
+        let half = fix.width / 2.0;
+        let box_pts = [
+            Point2::new(fix.along - half, floor_y - fix.elevation - fix.height),
+            Point2::new(fix.along + half, floor_y - fix.elevation - fix.height),
+            Point2::new(fix.along + half, floor_y - fix.elevation),
+            Point2::new(fix.along - half, floor_y - fix.elevation),
+        ];
+        let color = if matches!(
+            fix.catalog.as_str(),
+            "cold-water" | "hot-water" | "gas-point" | "valve" | "vent-grille"
+        ) {
+            plum
+        } else {
+            elec
+        };
+        scene.fill(Some(fix.furniture.into()), &box_pts, color.with_alpha(0.35));
+        scene.push(
+            Some(fix.furniture.into()),
+            Primitive::Line {
+                points: box_pts.to_vec(),
+                closed: true,
+                color,
+                width: Size::Cm(0.8),
+            },
+        );
+        scene.push(
+            Some(fix.furniture.into()),
+            Primitive::Text {
+                text: format!("{}", n + 1),
+                position: Point2::new(fix.along, floor_y - fix.elevation - fix.height / 2.0),
+                size: Size::Px(11.0),
+                color: palette.label,
+                align: Align::Center,
                 angle: 0.0,
                 look: TextLook {
                     bold: true,
@@ -388,9 +454,143 @@ pub fn wall_elevations_scene(home: &Home, walls: &[Wall]) -> Scene {
                 },
             },
         );
-        y += band + GAP;
     }
-    scene
+    let cm = |v: f64| format!("{v:.0}");
+    let mut label = format!("{}  {}x{} cm", wall.id, cm(len), cm(h0));
+    if let Some(kind) = wall.wall_type.as_deref().filter(|s| !s.is_empty()) {
+        label.push(' ');
+        label.push_str(kind);
+    }
+    scene.push(
+        owner,
+        Primitive::Text {
+            text: label,
+            position: Point2::new(0.0, y - 8.0),
+            size: Size::Cm(18.0),
+            color: palette.label,
+            align: Align::BaselineLeft,
+            angle: 0.0,
+            look: TextLook {
+                bold: true,
+                ..TextLook::default()
+            },
+        },
+    );
+    let dim = palette.dimension;
+    let mut xs: Vec<f64> = fixtures.iter().map(|f| f.along).collect();
+    xs.extend(cuts.iter().flat_map(|c| [c.from, c.to]));
+    let xs = unique_stations(xs, len);
+    elev_chain(
+        scene,
+        xs.iter().map(|&x| Point2::new(x, floor_y)),
+        -28.0,
+        dim,
+    );
+    elev_dim(
+        scene,
+        Point2::new(0.0, floor_y),
+        Point2::new(len, floor_y),
+        -52.0,
+        dim,
+    );
+    let mut hs: Vec<f64> = fixtures
+        .iter()
+        .map(|f| f.elevation + f.height / 2.0)
+        .collect();
+    hs.extend(cuts.iter().flat_map(|c| [c.bottom, c.top]));
+    let hs = unique_stations(hs, band);
+    elev_chain(
+        scene,
+        hs.iter().map(|&h| Point2::new(0.0, floor_y - h)),
+        28.0,
+        dim,
+    );
+    elev_dim(
+        scene,
+        Point2::new(0.0, floor_y),
+        Point2::new(0.0, floor_y - band),
+        52.0,
+        dim,
+    );
+    let mut extra = 70.0;
+    if !fixtures.is_empty() {
+        scene.push(
+            None,
+            Primitive::Text {
+                text: "n  from start / from floor  name".into(),
+                position: Point2::new(0.0, floor_y + extra),
+                size: Size::Px(11.0),
+                color: palette.room_text,
+                align: Align::BaselineLeft,
+                angle: 0.0,
+                look: TextLook::default(),
+            },
+        );
+        extra += 16.0;
+        for (n, fix) in fixtures.iter().enumerate() {
+            let h = fix.elevation + fix.height / 2.0;
+            scene.push(
+                Some(fix.furniture.into()),
+                Primitive::Text {
+                    text: format!("{}  {} / {}  {}", n + 1, cm(fix.along), cm(h), fix.name),
+                    position: Point2::new(0.0, floor_y + extra),
+                    size: Size::Px(11.0),
+                    color: palette.label,
+                    align: Align::BaselineLeft,
+                    angle: 0.0,
+                    look: TextLook::default(),
+                },
+            );
+            extra += 14.0;
+        }
+    }
+    band + extra
+}
+
+fn unique_stations(mut values: Vec<f64>, end: f64) -> Vec<f64> {
+    values.push(0.0);
+    values.push(end);
+    values.sort_by(f64::total_cmp);
+    let mut out = Vec::new();
+    for v in values {
+        let v = v.clamp(0.0, end);
+        if out.last().is_none_or(|p: &f64| (v - *p).abs() > 0.5) {
+            out.push(v);
+        }
+    }
+    out
+}
+
+fn elev_dim(scene: &mut Scene, a: Point2, b: Point2, offset: f64, color: Color) {
+    dimension_items(
+        scene,
+        &Dimension {
+            id: DimensionId(0),
+            start: a,
+            end: b,
+            offset,
+            ..Dimension::default()
+        },
+        LengthUnit::Centimeter,
+        color,
+    );
+}
+
+fn elev_chain(
+    scene: &mut Scene,
+    points: impl IntoIterator<Item = Point2>,
+    offset: f64,
+    color: Color,
+) {
+    let pts: Vec<Point2> = points.into_iter().collect();
+    if pts.len() < 3 {
+        return;
+    }
+    for pair in pts.windows(2) {
+        if pair[0].distance(pair[1]) > 0.5 {
+            elev_dim(scene, pair[0], pair[1], offset, color);
+        }
+    }
 }
 
 /// Builds the plan scene. Draw order: background, rooms, furniture, walls
@@ -1861,6 +2061,48 @@ mod tests {
                 .unwrap();
             assert!(angle > -90.0 && angle <= 90.0, "{angle}");
         }
+    }
+
+    #[test]
+    fn wall_elevation_draws_outlets_with_installer_dimensions() {
+        let mut home = Home::default();
+        let wall = Wall::new(
+            home.new_wall_id(),
+            Point2::new(0.0, 0.0),
+            Point2::new(400.0, 0.0),
+        );
+        home.walls.push(wall);
+        let outlet_id = home.new_furniture_id();
+        home.furniture.push(Furniture {
+            id: outlet_id,
+            catalog: "outlet-low".into(),
+            name: "Tomada baixa".into(),
+            position: Point2::new(120.0, 7.5),
+            elevation: 30.0,
+            width: 10.0,
+            depth: 4.0,
+            height: 10.0,
+            ..Furniture::default()
+        });
+        let scene = wall_elevations_scene(&home, &home.walls);
+        let texts: Vec<_> = scene
+            .items
+            .iter()
+            .filter_map(|i| match &i.primitive {
+                Primitive::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            texts.iter().any(|t| t.contains("Tomada baixa")),
+            "{texts:?}"
+        );
+        assert!(
+            texts.iter().any(|t| t.contains("120 / 35")),
+            "along and height from floor: {texts:?}"
+        );
+        assert!(texts.iter().any(|t| *t == "400"), "{texts:?}");
+        assert!(texts.iter().any(|t| *t == "250"), "{texts:?}");
     }
 }
 

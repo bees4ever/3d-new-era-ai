@@ -1748,21 +1748,21 @@ impl NewEraApp {
                     },
                 );
                 ui.menu_button(
-                    format!("{} {}", icon::WALL, crate::i18n::tr("Exportar paredes")),
+                    format!("{} {}", icon::WALL, crate::i18n::tr("Export walls")),
                     |ui| {
                         if ui
-                            .button(crate::i18n::tr("PDF (A3, ajustado à folha)…"))
+                            .button(crate::i18n::tr("PDF (A3, fit to sheet)…"))
                             .clicked()
                         {
                             self.export_walls("pdf");
                         }
                         if ui
-                            .button(crate::i18n::tr("PDF (A4, uma parede por folha)…"))
+                            .button(crate::i18n::tr("PDF (A4, one wall per page)…"))
                             .clicked()
                         {
                             self.export_walls("pdf-a4");
                         }
-                        if ui.button(crate::i18n::tr("CSV (planilha)…")).clicked() {
+                        if ui.button(crate::i18n::tr("CSV (spreadsheet)…")).clicked() {
                             self.export_walls("csv");
                         }
                         if ui.button(crate::i18n::tr("DXF (CAD)…")).clicked() {
@@ -3203,11 +3203,11 @@ mod tests {
         let mut h = app_with_wall();
         h.get_by_label("Arquivo").click();
         h.run_steps(3);
-        h.get_by_label_contains("Exportar paredes").click();
+        h.get_by_label_contains("Export walls").click();
         h.run_steps(3);
-        h.get_by_label_contains("PDF (A3");
-        h.get_by_label_contains("PDF (A4");
-        h.get_by_label_contains("CSV (planilha)");
+        h.get_by_label_contains("PDF (A3, fit to sheet)");
+        h.get_by_label_contains("PDF (A4, one wall per page)");
+        h.get_by_label_contains("CSV (spreadsheet)");
         h.get_by_label_contains("DXF (CAD)");
         h.get_by_label("JSON…");
     }

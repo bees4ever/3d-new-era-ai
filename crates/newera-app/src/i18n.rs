@@ -917,8 +917,14 @@ fn translations(pt: &str) -> Option<[&'static str; 3]> {
         "Excluir andar" => ["Delete storey", "Eliminar planta", "Supprimer l'étage"],
         "Exibir" => ["Show", "Ver", "Afficher"],
         "Exportar 3D" => ["Export 3D", "Exportar 3D", "Exporter la 3D"],
+        "Export walls" => ["Export walls", "Exportar paredes", "Exporter les murs"],
         "Exportar paredes" => ["Export walls", "Exportar paredes", "Exporter les murs"],
         "Exportar planta" => ["Export plan", "Exportar plano", "Exporter le plan"],
+        "CSV (spreadsheet)…" => [
+            "CSV (spreadsheet)…",
+            "CSV (hoja de cálculo)…",
+            "CSV (tableur)…",
+        ],
         "CSV (planilha)…" => [
             "CSV (spreadsheet)…",
             "CSV (hoja de cálculo)…",
@@ -1074,10 +1080,20 @@ fn translations(pt: &str) -> Option<[&'static str; 3]> {
             "Orden (misma elevación)",
             "Ordre (même élévation)",
         ],
+        "PDF (A3, fit to sheet)…" => [
+            "PDF (A3, fit to sheet)…",
+            "PDF (A3, ajustado a la hoja)…",
+            "PDF (A3, ajusté à la feuille)…",
+        ],
         "PDF (A3, ajustado à folha)…" => [
             "PDF (A3, fit to sheet)…",
             "PDF (A3, ajustado a la hoja)…",
             "PDF (A3, ajusté à la feuille)…",
+        ],
+        "PDF (A4, one wall per page)…" => [
+            "PDF (A4, one wall per page)…",
+            "PDF (A4, una pared por hoja)…",
+            "PDF (A4, un mur par page)…",
         ],
         "PDF (A4, uma parede por folha)…" => [
             "PDF (A4, one wall per page)…",

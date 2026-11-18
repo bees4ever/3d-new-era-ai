@@ -983,6 +983,103 @@ pub fn hidden(home: &Home, piece: &Furniture) -> Option<Text> {
     None
 }
 
+/// A face-mounted point on a wall elevation: outlet, switch, wall light,
+/// water point, or an imported box sitting on the wall.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WallFixture {
+    pub furniture: crate::ids::FurnitureId,
+    /// Center along the wall from its start, cm.
+    pub along: f64,
+    /// Bottom above the floor, cm.
+    pub elevation: f64,
+    pub width: f64,
+    pub height: f64,
+    pub name: String,
+    pub catalog: String,
+}
+
+/// Whether a piece belongs on a wall elevation (not a door, a cabinet, a
+/// ceiling point or something standing in the room).
+fn is_wall_fixture(piece: &Furniture) -> bool {
+    if !piece.visible || piece.is_opening() || piece.is_group() {
+        return false;
+    }
+    if on_ceiling(piece)
+        || matches!(
+            mount_of(&piece.catalog),
+            Some(Mount::Ceiling | Mount::Floor | Mount::Furniture)
+        )
+    {
+        return false;
+    }
+    if wall_mounted(&piece.catalog) {
+        return true;
+    }
+    if piece.discipline == Some(crate::style::Discipline::Electrical) {
+        return true;
+    }
+    if piece.light.is_some() {
+        return true;
+    }
+    // Imported Schuko, sconces, and the like: a shallow box on the face.
+    piece.catalog == "imported" && piece.depth <= 15.0 && piece.height <= 80.0
+}
+
+/// Pieces set on each wall, in `walls` order. A point is given to the
+/// nearest wall it sits in, so a corner socket is not drawn twice.
+pub fn wall_fixtures(
+    walls: &[crate::elements::Wall],
+    furniture: &[Furniture],
+) -> Vec<Vec<WallFixture>> {
+    let mut out = vec![Vec::new(); walls.len()];
+    for piece in furniture.iter().flat_map(Furniture::flatten) {
+        if !is_wall_fixture(piece) {
+            continue;
+        }
+        let Some((i, along)) = walls
+            .iter()
+            .enumerate()
+            .filter(|(_, w)| !w.is_arc() && w.level == piece.level)
+            .filter_map(|(i, w)| {
+                let len = w.start.distance(w.end);
+                if len < 1e-9 {
+                    return None;
+                }
+                let dist = distance_to_segment(piece.position, w.start, w.end);
+                if dist > w.thickness / 2.0 + IN_WALL {
+                    return None;
+                }
+                let dir = ((w.end.x - w.start.x) / len, (w.end.y - w.start.y) / len);
+                let along = ((piece.position.x - w.start.x) * dir.0
+                    + (piece.position.y - w.start.y) * dir.1)
+                    .clamp(0.0, len);
+                Some((i, along, dist))
+            })
+            .min_by(|a, b| a.2.total_cmp(&b.2))
+            .map(|(i, along, _)| (i, along))
+        else {
+            continue;
+        };
+        out[i].push(WallFixture {
+            furniture: piece.id,
+            along,
+            elevation: piece.elevation,
+            width: piece.width.max(1.0),
+            height: piece.height.max(1.0),
+            name: piece.name.clone(),
+            catalog: piece.catalog.clone(),
+        });
+    }
+    for list in &mut out {
+        list.sort_by(|a, b| {
+            a.along
+                .total_cmp(&b.along)
+                .then(a.elevation.total_cmp(&b.elevation))
+        });
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1427,5 +1524,55 @@ mod tests {
             blocked(&home, &outlet(110.0, (450.0, 3.0))).is_none(),
             "above it"
         );
+    }
+
+    #[test]
+    fn wall_fixtures_take_outlets_and_imported_face_pieces() {
+        let wall = Wall::new(WallId(1), Point2::new(0.0, 0.0), Point2::new(400.0, 0.0));
+        let mut low = outlet(30.0, (100.0, 7.5));
+        low.id = FurnitureId(1);
+        let lamp = Furniture {
+            id: FurnitureId(2),
+            catalog: "imported".into(),
+            name: "Wandlampe".into(),
+            position: Point2::new(250.0, 5.0),
+            elevation: 90.0,
+            width: 10.0,
+            depth: 10.0,
+            height: 10.0,
+            ..Furniture::default()
+        };
+        let mut ceiling = outlet(244.0, (150.0, 80.0));
+        ceiling.id = FurnitureId(3);
+        ceiling.catalog = "light-ceiling".into();
+        ceiling.name = "Pendente".into();
+        let sofa = Furniture {
+            id: FurnitureId(4),
+            catalog: "sofa-3".into(),
+            name: "Sofá".into(),
+            position: Point2::new(200.0, 120.0),
+            width: 200.0,
+            depth: 90.0,
+            height: 80.0,
+            ..Furniture::default()
+        };
+        let other = Wall::new(
+            WallId(2),
+            Point2::new(0.0, 200.0),
+            Point2::new(400.0, 200.0),
+        );
+        let lists = wall_fixtures(&[wall, other], &[low, lamp, ceiling, sofa]);
+        assert_eq!(lists[0].len(), 2, "{:?}", lists[0]);
+        assert!(
+            lists[0]
+                .iter()
+                .any(|f| f.name == "Tomada" && (f.along - 100.0).abs() < 0.1)
+        );
+        assert!(
+            lists[0]
+                .iter()
+                .any(|f| f.name == "Wandlampe" && (f.along - 250.0).abs() < 0.1)
+        );
+        assert!(lists[1].is_empty(), "nothing sits on the far wall");
     }
 }

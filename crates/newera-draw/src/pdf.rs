@@ -301,7 +301,7 @@ pub fn walls_to_pdf(home: &Home, walls: &[Wall], options: &PdfOptions) -> Vec<u8
 mod tests {
     use super::*;
     use crate::scene::{SceneOptions, plan_scene};
-    use newera_core::{Home, Label, Level, LevelId, Room, Wall};
+    use newera_core::{Furniture, Home, Label, Level, LevelId, Room, Wall};
 
     #[test]
     fn writes_a_structurally_valid_pdf_with_accents() {
@@ -427,5 +427,40 @@ mod tests {
         let start = text.rfind("startxref\n").unwrap() + 10;
         let offset: usize = text[start..].lines().next().unwrap().parse().unwrap();
         assert!(pdf[offset..].starts_with(b"xref"));
+    }
+
+    #[test]
+    fn walls_pdf_names_the_outlet_and_its_height() {
+        let mut home = Home::default();
+        let wall = Wall::new(
+            home.new_wall_id(),
+            Point2::new(0.0, 0.0),
+            Point2::new(400.0, 0.0),
+        );
+        home.walls.push(wall);
+        let outlet_id = home.new_furniture_id();
+        home.furniture.push(Furniture {
+            id: outlet_id,
+            catalog: "outlet-low".into(),
+            name: "Tomada baixa".into(),
+            position: Point2::new(120.0, 7.5),
+            elevation: 30.0,
+            width: 10.0,
+            depth: 4.0,
+            height: 10.0,
+            ..Furniture::default()
+        });
+        let pdf = walls_to_a4_pdf(
+            &home,
+            &home.walls,
+            &PdfOptions {
+                title: "Casa".into(),
+                ..PdfOptions::default()
+            },
+        );
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("Tomada baixa"), "{text}");
+        assert!(text.contains("120 / 35"), "{text}");
+        assert!(text.contains("from start / from floor"), "{text}");
     }
 }
