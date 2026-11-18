@@ -1032,16 +1032,27 @@ impl NewEraApp {
                 _ => None,
             })
             .collect();
-        let walls = {
+        let (name, home) = {
             let doc = self.document.read();
-            newera_core::walls_to_export(doc.home(), &selected)
+            (doc.home().name.clone(), doc.home().clone())
         };
+        let walls = newera_core::walls_to_export(&home, &selected);
         if walls.is_empty() {
             return self.set_status(crate::i18n::tr("Nenhuma parede para exportar."));
         }
-        let name = self.document.read().home().name.clone();
         let ext_owned = ext.to_owned();
-        let make = move || newera_core::walls_bytes(&walls, &ext_owned);
+        let title = (ext == "pdf").then(|| name.clone());
+        let make = move || match title {
+            Some(title) => Ok(newera_draw::walls_to_pdf(
+                &home,
+                &walls,
+                &newera_draw::PdfOptions {
+                    title,
+                    ..newera_draw::PdfOptions::default()
+                },
+            )),
+            None => newera_core::walls_bytes(&walls, &ext_owned),
+        };
         #[cfg(not(target_arch = "wasm32"))]
         {
             let dialog =
@@ -1734,6 +1745,12 @@ impl NewEraApp {
                 ui.menu_button(
                     format!("{} {}", icon::WALL, crate::i18n::tr("Exportar paredes")),
                     |ui| {
+                        if ui
+                            .button(crate::i18n::tr("PDF (A3, ajustado à folha)…"))
+                            .clicked()
+                        {
+                            self.export_walls("pdf");
+                        }
                         if ui.button(crate::i18n::tr("CSV (planilha)…")).clicked() {
                             self.export_walls("csv");
                         }
@@ -3177,6 +3194,7 @@ mod tests {
         h.run_steps(3);
         h.get_by_label_contains("Exportar paredes").click();
         h.run_steps(3);
+        h.get_by_label_contains("PDF (A3");
         h.get_by_label_contains("CSV (planilha)");
         h.get_by_label_contains("DXF (CAD)");
         h.get_by_label("JSON…");

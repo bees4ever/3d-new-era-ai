@@ -2,11 +2,12 @@
 //! page, with a small title block. Written by hand: PDF 1.4, the standard
 //! Helvetica fonts (`WinAnsi` encoding) and uncompressed content.
 
+use std::collections::HashSet;
 use std::fmt::Write as _;
 
-use newera_core::Point2;
+use newera_core::{Home, Point2, Wall};
 
-use crate::scene::{Align, Color, Primitive, Scene, Size};
+use crate::scene::{Align, Color, Primitive, Scene, SceneOptions, Size, plan_scene};
 
 /// Points per centimeter of paper.
 const PT_PER_CM: f64 = 72.0 / 2.54;
@@ -241,6 +242,29 @@ pub fn to_pdf(scene: &Scene, options: &PdfOptions) -> Vec<u8> {
     out
 }
 
+/// A3 PDF of `walls` (and the doors and windows that cut them), nothing else.
+pub fn walls_to_pdf(home: &Home, walls: &[Wall], options: &PdfOptions) -> Vec<u8> {
+    let keep: HashSet<_> = walls.iter().map(|wall| wall.id).collect();
+    let mut sheet = home.clone();
+    sheet.walls.retain(|wall| keep.contains(&wall.id));
+    sheet.rooms.clear();
+    sheet.polylines.clear();
+    sheet.dimensions.clear();
+    sheet.labels.clear();
+    sheet.background = None;
+    for level in &mut sheet.levels {
+        level.background = None;
+    }
+    sheet.compass.visible = false;
+    let openings: HashSet<_> = newera_core::wall_cuts(&sheet.walls, &sheet.furniture)
+        .into_iter()
+        .flatten()
+        .map(|cut| cut.furniture)
+        .collect();
+    sheet.furniture.retain(|piece| openings.contains(&piece.id));
+    to_pdf(&plan_scene(&sheet, &SceneOptions::default()), options)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -290,5 +314,35 @@ mod tests {
         let start = text.rfind("startxref\n").unwrap() + 10;
         let offset: usize = text[start..].lines().next().unwrap().parse().unwrap();
         assert!(pdf[offset..].starts_with(b"xref"));
+    }
+
+    #[test]
+    fn walls_pdf_is_a_pdf_of_those_walls_only() {
+        let mut home = Home::default();
+        let wall_id = home.new_wall_id();
+        home.walls.push(Wall::new(
+            wall_id,
+            Point2::new(0.0, 0.0),
+            Point2::new(400.0, 0.0),
+        ));
+        let label_id = home.new_label_id();
+        home.labels.push(Label {
+            id: label_id,
+            text: "not a wall".into(),
+            position: Point2::new(100.0, 100.0),
+            ..Label::default()
+        });
+        let pdf = walls_to_pdf(
+            &home,
+            &home.walls,
+            &PdfOptions {
+                title: "Paredes".into(),
+                ..PdfOptions::default()
+            },
+        );
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.starts_with("%PDF-1.4"));
+        assert!(text.contains("Paredes"));
+        assert!(!text.contains("not a wall"));
     }
 }

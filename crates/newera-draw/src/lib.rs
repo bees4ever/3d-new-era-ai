@@ -6,7 +6,7 @@ mod raster;
 mod scene;
 mod svg;
 
-pub use pdf::{PdfOptions, to_pdf};
+pub use pdf::{PdfOptions, to_pdf, walls_to_pdf};
 pub use raster::{RenderError, RenderOptions, Viewport, render_pixmap, render_png};
 pub use scene::{
     Align, Color, EM_TO_HEIGHT, FillTexture, Item, Palette, PieceImageFn, PieceImages, Primitive,
