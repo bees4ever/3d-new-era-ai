@@ -127,6 +127,10 @@ pub fn transformed(element: Element, t: Transform) -> Element {
             p.points = map(p.points);
             Element::Polyline(p)
         }
+        Element::Esmog(mut z) => {
+            z.points = map(z.points);
+            Element::Esmog(z)
+        }
         Element::Furniture(mut f) => {
             move_piece(&mut f, t);
             Element::Furniture(f)
@@ -166,6 +170,10 @@ fn with_new_id(doc: &mut Document, element: Element) -> Element {
         Element::Polyline(mut p) => {
             p.id = doc.new_polyline_id();
             Element::Polyline(p)
+        }
+        Element::Esmog(mut z) => {
+            z.id = doc.new_esmog_id();
+            Element::Esmog(z)
         }
         Element::Furniture(mut f) => {
             renumber_piece(doc, &mut f);

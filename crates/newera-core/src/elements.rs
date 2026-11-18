@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::{CoreError, CoreResult};
 use crate::furniture::Furniture;
 use crate::geometry::{Point2, polygon_area};
+use crate::esmog::EsmogZone;
 use crate::ids::{DimensionId, ElementId, LabelId, LevelId, RoomId, WallId};
 use crate::materials::Material;
 use crate::style::{Polyline, Properties, TextStyle, is_default, is_zero};
@@ -885,6 +886,7 @@ pub enum Element {
     Furniture(Furniture),
     Level(Level),
     Polyline(Polyline),
+    Esmog(EsmogZone),
 }
 
 impl Element {
@@ -897,6 +899,7 @@ impl Element {
             Self::Label(e) => e.id.into(),
             Self::Furniture(e) => e.id.into(),
             Self::Level(e) => e.id.into(),
+            Self::Esmog(e) => e.id.into(),
         }
     }
 
@@ -909,6 +912,7 @@ impl Element {
             Self::Label(e) => e.validate(),
             Self::Furniture(e) => e.validate(),
             Self::Level(e) => e.validate(),
+            Self::Esmog(e) => e.validate(),
         }
     }
 }
@@ -924,6 +928,12 @@ macro_rules! element_from {
 }
 element_from!(Wall, Room, Dimension, Label, Furniture, Level, Polyline);
 
+impl From<EsmogZone> for Element {
+    fn from(e: EsmogZone) -> Self {
+        Self::Esmog(e)
+    }
+}
+
 impl Element {
     /// Storey of an element; levels themselves have none.
     pub fn level(&self) -> Option<LevelId> {
@@ -934,6 +944,7 @@ impl Element {
             Self::Label(e) => e.level,
             Self::Furniture(e) => e.level,
             Self::Polyline(e) => e.level,
+            Self::Esmog(e) => e.level,
             Self::Level(_) => None,
         }
     }
@@ -946,6 +957,7 @@ impl Element {
             Self::Label(e) => e.level = level,
             Self::Furniture(e) => e.level = level,
             Self::Polyline(e) => e.level = level,
+            Self::Esmog(e) => e.level = level,
             Self::Level(_) => {}
         }
     }
@@ -957,7 +969,7 @@ impl Element {
             Self::Polyline(e) => e.discipline,
             Self::Label(e) => e.discipline,
             Self::Dimension(e) => e.discipline,
-            Self::Wall(_) | Self::Room(_) | Self::Level(_) => None,
+            Self::Wall(_) | Self::Room(_) | Self::Level(_) | Self::Esmog(_) => None,
         }
     }
 
@@ -975,7 +987,7 @@ impl Element {
             Self::Polyline(e) => e.discipline = discipline,
             Self::Label(e) => e.discipline = discipline,
             Self::Dimension(e) => e.discipline = discipline,
-            Self::Wall(_) | Self::Room(_) | Self::Level(_) => {}
+            Self::Wall(_) | Self::Room(_) | Self::Level(_) | Self::Esmog(_) => {}
         }
     }
 }

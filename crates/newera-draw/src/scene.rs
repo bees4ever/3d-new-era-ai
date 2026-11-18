@@ -8,8 +8,8 @@ use std::collections::HashSet;
 
 use newera_catalog::{SymbolShape, plan_symbol};
 use newera_core::{
-    Compass, Dimension, DimensionId, ElementId, Furniture, Home, Label, LengthUnit, Point2, Room,
-    Wall, cut_outline, polygon_centroid, triangulate, wall_cuts,
+    Compass, Dimension, DimensionId, ElementId, EsmogZone, Furniture, Home, Label, LengthUnit,
+    Point2, Room, Wall, cut_outline, polygon_centroid, triangulate, wall_cuts,
 };
 
 /// Straight (non-premultiplied) RGBA color.
@@ -898,6 +898,11 @@ pub fn plan_scene(home: &Home, options: &SceneOptions) -> Scene {
         room_texts(&mut scene, room, arch_options, &around);
     }
 
+    // Overlapping zones stay two fills (ADR 0007); later ones sit on top.
+    for zone in &home.esmog {
+        esmog_items(&mut scene, zone, options);
+    }
+
     for dimension in home.dimensions.iter().filter(|d| shown(d.discipline)) {
         let own = fade(
             dimension
@@ -1240,6 +1245,50 @@ fn blend(a: Color, b: Color, t: f64) -> Color {
         mix(a.0[2], b.0[2]),
         a.0[3],
     ])
+}
+
+fn esmog_items(scene: &mut Scene, zone: &EsmogZone, options: &SceneOptions) {
+    let owner = Some(zone.id.into());
+    let [r, g, b] = zone.color;
+    let fill = Color::rgb(r, g, b).with_alpha(zone.opacity.clamp(0.05, 0.9));
+    let selected = options.selected.contains(&zone.id.into());
+    scene.fill(owner, &zone.points, fill);
+    scene.push(
+        owner,
+        Primitive::Line {
+            points: zone.points.clone(),
+            closed: true,
+            color: if selected {
+                options.palette.selection
+            } else {
+                Color::rgb(r, g, b)
+            },
+            width: Size::Px(if selected { 2.0 } else { 1.2 }),
+        },
+    );
+    let text = zone.plan_label();
+    if text.is_empty() {
+        return;
+    }
+    let Some(center) = zone.centroid() else {
+        return;
+    };
+    scene.push(
+        owner,
+        Primitive::Text {
+            text,
+            position: center,
+            size: Size::Px(12.0),
+            color: options.palette.label,
+            align: Align::Center,
+            angle: 0.0,
+            look: TextLook {
+                bold: true,
+                outline: Some(options.palette.paper),
+                ..TextLook::default()
+            },
+        },
+    );
 }
 
 fn room_items(scene: &mut Scene, room: &Room, options: &SceneOptions, line: Color) {
@@ -2550,5 +2599,53 @@ mod label_tests {
             })
             .count();
         assert_eq!(rug_fills, 0, "rugs are drawn without fill");
+    }
+
+    #[test]
+    fn esmog_zones_keep_their_own_fill_and_reading() {
+        use newera_core::{EsmogId, EsmogZone};
+
+        let mut home = Home::default();
+        let mut a = EsmogZone::new(
+            EsmogId(1),
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(200.0, 0.0),
+                Point2::new(200.0, 200.0),
+                Point2::new(0.0, 200.0),
+            ],
+        );
+        a.value = Some(800.0);
+        let mut b = a.clone();
+        b.id = EsmogId(2);
+        b.points.iter_mut().for_each(|p| {
+            p.x += 50.0;
+            p.y += 50.0;
+        });
+        b.value = Some(12.0);
+        b.unit = "nT".into();
+        home.esmog.extend([a, b]);
+        let scene = plan_scene(&home, &SceneOptions::default());
+        let texts: Vec<&str> = scene
+            .items
+            .iter()
+            .filter_map(|i| match &i.primitive {
+                Primitive::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(texts.iter().any(|t| t.contains("800") && t.contains("µW")), "{texts:?}");
+        assert!(texts.iter().any(|t| t.contains("12") && t.contains("nT")), "{texts:?}");
+        let fills = scene
+            .items
+            .iter()
+            .filter(|i| {
+                matches!(
+                    i.owner,
+                    Some(newera_core::ElementId::Esmog(_))
+                ) && matches!(i.primitive, Primitive::Fill { .. })
+            })
+            .count();
+        assert_eq!(fills, 2, "overlapping zones stay two fills");
     }
 }

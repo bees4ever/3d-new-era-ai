@@ -513,7 +513,7 @@ fn levels(app: &mut NewEraApp, ui: &mut egui::Ui) {
     let current_name = levels
         .iter()
         .find(|l| Some(l.id) == current)
-        .map_or_else(String::new, |l| l.name.clone());
+        .map_or_else(String::new, |l| crate::i18n::shown(&l.name));
     let mut select = None;
     egui::ComboBox::from_id_salt("level_select")
         .selected_text(format!("{} {current_name}", icon::STACK))
@@ -521,7 +521,7 @@ fn levels(app: &mut NewEraApp, ui: &mut egui::Ui) {
             for level in levels.iter().rev() {
                 let label = format!(
                     "{} · {}",
-                    level.name,
+                    crate::i18n::shown(&level.name),
                     app.unit().format_length(level.elevation)
                 );
                 if ui

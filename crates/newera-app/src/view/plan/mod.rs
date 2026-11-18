@@ -16,8 +16,8 @@ use std::sync::Arc;
 
 use eframe::egui::{self, Color32, CursorIcon, Key, PointerButton, Pos2, Rect, Stroke, Vec2};
 use newera_core::{
-    Command, CoreResult, Dimension, Document, Element, ElementId, Furniture, FurnitureId, Home,
-    LengthUnit, Point2, Room, SharedDocument, Wall, WallId, ops, polygon_area,
+    Command, CoreResult, Dimension, Document, Element, ElementId, EsmogZone, Furniture,
+    FurnitureId, Home, LengthUnit, Point2, Room, SharedDocument, Wall, WallId, ops, polygon_area,
 };
 use newera_draw::{Align, Palette, Scene, SceneOptions, plan_scene};
 
@@ -34,6 +34,8 @@ pub(crate) enum Tool {
     Pan,
     Walls,
     Rooms,
+    /// Electrosmog measurement volumes: polygon + height + reading.
+    Esmog,
     Dimensions,
     Labels,
     /// Free lines: annotations, conduits, pipes.
@@ -385,6 +387,40 @@ impl PlanView {
                                         .into(),
                                 )),
                             }
+                        }
+                    } else if response.clicked_by(PointerButton::Primary)
+                        && self
+                            .room_points
+                            .last()
+                            .is_none_or(|last| last.distance(snapped) > 0.5)
+                    {
+                        self.room_points.push(snapped);
+                    }
+                    if !self.room_points.is_empty() {
+                        let mut pts = self.room_points.clone();
+                        pts.push(snapped);
+                        overlays.push(Overlay::Polygon(pts));
+                    }
+                    overlays.push(Overlay::Cross(snapped));
+                }
+            }
+            Tool::Esmog => {
+                if let Some(p) = raw {
+                    let snapped = if magnetism {
+                        magnet::snap_point(&home, p, zoom, &[])
+                    } else {
+                        p
+                    };
+                    if multi_click(&response) {
+                        if self.room_points.len() >= 3 {
+                            let points = std::mem::take(&mut self.room_points);
+                            commit(&mut events, &mut |doc| {
+                                let mut zone = EsmogZone::new(doc.new_esmog_id(), points.clone());
+                                zone.height = doc.home().wall_height;
+                                doc.execute(Command::insert(zone))
+                            });
+                        } else {
+                            self.room_points.clear();
                         }
                     } else if response.clicked_by(PointerButton::Primary)
                         && self
@@ -844,6 +880,9 @@ impl PlanView {
                 Some(Element::Room(r)) => {
                     magnet::snap_point(home, current, zoom, &[r.points[*index]])
                 }
+                Some(Element::Esmog(z)) => {
+                    magnet::snap_point(home, current, zoom, &[z.points[*index]])
+                }
                 _ => current,
             },
             Drag::DimPoint { .. } => magnet::snap_point(home, current, zoom, &[]),
@@ -1181,6 +1220,15 @@ fn handles(home: &Home, id: ElementId) -> Vec<Handle> {
                 drag: Drag::RoomPoint { id, index },
             })
             .collect(),
+        Some(Element::Esmog(z)) => z
+            .points
+            .iter()
+            .enumerate()
+            .map(|(index, p)| Handle {
+                at: *p,
+                drag: Drag::RoomPoint { id, index },
+            })
+            .collect(),
         Some(Element::Dimension(d)) => {
             let len = d.length().max(1e-9);
             let n = ((d.end.y - d.start.y) / len, -(d.end.x - d.start.x) / len);
@@ -1262,6 +1310,10 @@ fn apply_drag(doc: &mut Document, drag: &Drag, target: Point2) -> CoreResult<()>
             Some(Element::Room(mut room)) => {
                 room.points[*index] = target;
                 doc.execute(Command::update(room))
+            }
+            Some(Element::Esmog(mut zone)) => {
+                zone.points[*index] = target;
+                doc.execute(Command::update(zone))
             }
             _ => Ok(()),
         },
@@ -1480,6 +1532,20 @@ mod tests {
         let walls = home(&h).walls;
         assert_eq!(walls.len(), 1);
         assert!(close(walls[0].end, (257.0, 0.0)), "{:?}", walls[0].end);
+    }
+
+    #[test]
+    fn esmog_tool_closes_a_zone_with_double_click() {
+        let mut h = harness(Home::default(), Tool::Esmog);
+        click(&mut h, (0.0, 0.0));
+        click(&mut h, (200.0, 0.0));
+        click(&mut h, (200.0, 200.0));
+        double_click(&mut h, (200.0, 200.0));
+        let zones = home(&h).esmog;
+        assert_eq!(zones.len(), 1, "{zones:?}");
+        assert!(zones[0].points.len() >= 3);
+        assert!(zones[0].value.is_none());
+        assert!((zones[0].height - 250.0).abs() < 0.5);
     }
 
     #[test]

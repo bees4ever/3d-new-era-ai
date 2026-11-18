@@ -20,7 +20,7 @@ pub(crate) struct GetHomeParams {
     detail: Option<String>,
     /// Only these ids, group parts included, e.g. `["f833","w24"]`.
     ids: Option<Vec<String>>,
-    /// Only these kinds: `walls`, `rooms`, `dims`, `labels`, `furniture`,
+    /// Kinds: `walls`, `rooms`, `esmog`, `dims`, `labels`, `furniture`,
     /// `polylines`.
     kinds: Option<Vec<String>>,
     /// Only what stands inside this room, by id or name.

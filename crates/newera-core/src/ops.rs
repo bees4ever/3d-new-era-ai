@@ -207,6 +207,10 @@ pub fn translate(
                 p.points = p.points.into_iter().map(shift).collect();
                 Element::Polyline(p)
             }
+            Element::Esmog(mut z) => {
+                z.points = z.points.into_iter().map(shift).collect();
+                Element::Esmog(z)
+            }
             Element::Furniture(mut f) => {
                 f.translate(dx, dy);
                 // Doors and windows stay seated in the nearest wall — as it

@@ -181,6 +181,7 @@ impl NewEraMcp {
                 .flat_map(|e| match e {
                     newera_core::Element::Wall(w) => vec![w.start, w.end],
                     newera_core::Element::Room(r) => r.points,
+                    newera_core::Element::Esmog(z) => z.points,
                     newera_core::Element::Dimension(d) => vec![d.start, d.end],
                     newera_core::Element::Label(l) => vec![l.position],
                     newera_core::Element::Polyline(l) => l.points,

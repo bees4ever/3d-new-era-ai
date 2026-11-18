@@ -1498,6 +1498,7 @@ impl NewEraApp {
                 (Key::H, Tool::Pan),
                 (Key::W, Tool::Walls),
                 (Key::R, Tool::Rooms),
+                (Key::E, Tool::Esmog),
                 (Key::D, Tool::Dimensions),
                 (Key::T, Tool::Labels),
                 (Key::L, Tool::Lines),
@@ -2618,11 +2619,12 @@ impl NewEraApp {
     }
 }
 
-pub(crate) const TOOLS: [(Tool, &str, &str, &str); 7] = [
+pub(crate) const TOOLS: [(Tool, &str, &str, &str); 8] = [
     (Tool::Select, icon::CURSOR, "Selecionar", "V"),
     (Tool::Pan, icon::HAND, "Mover vista", "H"),
     (Tool::Walls, icon::WALL, "Criar paredes", "W"),
     (Tool::Rooms, icon::POLYGON, "Criar cômodos", "R"),
+    (Tool::Esmog, icon::LIGHTNING, "Medições de esmog", "E"),
     (Tool::Dimensions, icon::RULER, "Criar cotas", "D"),
     (Tool::Labels, icon::TEXT_T, "Adicionar texto", "T"),
     (Tool::Lines, icon::LINE_SEGMENTS, "Desenhar linhas", "L"),
@@ -2640,6 +2642,9 @@ fn tool_hint(tool: Tool) -> &'static str {
         Tool::Rooms => crate::i18n::tr(
             "Clique os cantos e duplo clique fecha · duplo clique dentro de paredes detecta o cômodo",
         ),
+        Tool::Esmog => {
+            crate::i18n::tr("Clique os cantos e duplo clique fecha · altura e valor no diálogo")
+        }
         Tool::Dimensions => crate::i18n::tr(
             "Clique início e fim, mova para afastar e clique · duplo clique numa parede cota a parede",
         ),
@@ -2730,6 +2735,11 @@ fn shift_with_new_id(doc: &mut Document, mut element: Element, offset: f64) -> E
             r.id = doc.new_room_id();
             r.points = r.points.into_iter().map(shift).collect();
             Element::Room(r)
+        }
+        Element::Esmog(mut z) => {
+            z.id = doc.new_esmog_id();
+            z.points = z.points.into_iter().map(shift).collect();
+            Element::Esmog(z)
         }
         Element::Dimension(mut d) => {
             d.id = doc.new_dimension_id();
@@ -3843,6 +3853,7 @@ mod tests {
         for (key, tool) in [
             (Key::W, Tool::Walls),
             (Key::R, Tool::Rooms),
+            (Key::E, Tool::Esmog),
             (Key::D, Tool::Dimensions),
             (Key::V, Tool::Select),
         ] {
@@ -3940,6 +3951,46 @@ mod tests {
             h.state().document.read().home().room(room_id).unwrap().name,
             "Suíte"
         );
+    }
+
+    #[test]
+    fn esmog_dialog_keeps_a_typed_reading() {
+        let mut h = app_with_wall();
+        let id = {
+            let mut doc = h.state().document.write();
+            let zone = newera_core::EsmogZone::new(
+                doc.new_esmog_id(),
+                vec![
+                    Point2::new(0.0, 0.0),
+                    Point2::new(200.0, 0.0),
+                    Point2::new(200.0, 200.0),
+                    Point2::new(0.0, 200.0),
+                ],
+            );
+            let id = zone.id;
+            doc.execute(Command::insert(zone)).unwrap();
+            id
+        };
+        h.run_steps(2);
+        h.state_mut().open_modify(&[id.into()]);
+        h.run_steps(3);
+        h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .last()
+            .expect("reading field")
+            .type_text("800");
+        h.run_steps(8);
+        h.get_by_label_contains("OK").click();
+        h.run_steps(5);
+        let zone = h
+            .state()
+            .document
+            .read()
+            .home()
+            .esmog_zone(id)
+            .cloned()
+            .unwrap();
+        assert_eq!(zone.name, "", "keys must stay in the reading, not the name");
+        assert_eq!(zone.value, Some(800.0), "{zone:?}");
     }
 }
 

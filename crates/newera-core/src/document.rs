@@ -4,7 +4,9 @@ use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use crate::command::Command;
 use crate::error::{CoreError, CoreResult};
 use crate::home::Home;
-use crate::ids::{DimensionId, FurnitureId, LabelId, LevelId, PolylineId, RoomId, WallId};
+use crate::ids::{
+    DimensionId, EsmogId, FurnitureId, LabelId, LevelId, PolylineId, RoomId, WallId,
+};
 
 /// One version of the project, with its own edit history.
 #[derive(Debug, Clone)]
@@ -165,6 +167,10 @@ impl Document {
     /// Allocates a fresh room id. Ids are never reused, even after undo.
     pub fn new_room_id(&mut self) -> RoomId {
         self.current_mut().home.new_room_id()
+    }
+
+    pub fn new_esmog_id(&mut self) -> EsmogId {
+        self.current_mut().home.new_esmog_id()
     }
 
     pub fn new_dimension_id(&mut self) -> DimensionId {

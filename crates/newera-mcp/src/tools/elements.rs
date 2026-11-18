@@ -211,7 +211,7 @@ fn with_unchanged(
 #[tool_router(router = elements_router, vis = "pub(crate)")]
 impl NewEraMcp {
     #[tool(
-        description = "Create walls (polylines; hs = height per point for gables), rooms (pts, or at=[x,y] to detect from walls; ceiling_flat=false follows wall profiles instead of the default flat ceiling), dims (a+b or wall id), labels, roofs (rectangle pts, gable|shed, pitch or ridge_h, eave h, overhang, gables=true closes the ends, skylights [{at,w,d}] cut glazed openings) and solids (pts outline raised by h at elev: slabs/mezzanines of any shape; or profile [[u,z]] swept from a to b: gables, ramps) in one atomic step."
+        description = "Create walls (polylines; hs = height per point for gables), rooms (pts, or at=[x,y] to detect from walls; ceiling_flat=false follows wall profiles), esmog (pts, h, optional value+unit), dims (a+b or wall id), labels, roofs (rectangle pts, gable|shed, pitch or ridge_h, eave h, overhang, gables=true closes the ends, skylights [{at,w,d}]) and solids (pts raised by h at elev, or profile [[u,z]] swept a→b) in one atomic step."
     )]
     pub(crate) fn create(
         &self,

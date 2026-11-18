@@ -2,8 +2,8 @@
 //! protocol types so it can be unit-tested directly.
 
 use newera_core::{
-    BackgroundImage, Command, CoreError, Dimension, Document, Element, ElementId, Label, Material,
-    Point2, Room, Wall, ops,
+    BackgroundImage, Command, CoreError, Dimension, Document, Element, ElementId, EsmogZone, Label,
+    Material, Point2, Room, Wall, ops,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -65,7 +65,7 @@ pub(crate) struct WallPath {
     pub t: Option<f64>,
     /// Height cm (default 250).
     pub h: Option<f64>,
-    /// Height cm at each point, for sloping walls and gables (overrides `h`).
+    /// Height cm per point.
     pub hs: Option<Vec<f64>>,
     /// Arc extent in degrees applied to every segment (positive bulges left).
     pub arc: Option<f64>,
@@ -90,8 +90,19 @@ pub(crate) struct RoomSpec {
     pub floor_mat: Option<String>,
     /// Ceiling finish.
     pub ceil_mat: Option<String>,
-    /// Flat ceiling at storey height (default) or along wall profiles (false).
+    /// Flat (default) or along walls.
     pub ceiling_flat: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+pub(crate) struct EsmogSpec {
+    /// Floor polygon.
+    pub pts: Vec<Point2>,
+    pub name: Option<String>,
+    /// Height cm (default 250).
+    pub h: Option<f64>,
+    pub value: Option<f64>,
+    pub unit: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
@@ -102,14 +113,14 @@ pub(crate) struct DimSpec {
     pub b: Option<Point2>,
     /// Measure a wall: `side` picks the line, `chain` splits at openings.
     pub wall: Option<String>,
-    /// `out` (outer face, default for chains), `in` (inner face) or `axis` (default).
+    /// `out`, `in` or `axis`.
     pub side: Option<String>,
     /// With `wall`: one dimension per wall piece and opening along the face.
     #[serde(default)]
     pub chain: bool,
     /// Clear width and depth of a room, e.g. `r5` (two dimensions).
     pub room: Option<String>,
-    /// Offset cm from the measured line (default 40 for walls; a/b: left of a→b is positive).
+    /// Offset cm (left of a→b positive).
     pub off: Option<f64>,
     /// Also draw it in 3D.
     #[serde(default)]
@@ -167,6 +178,9 @@ pub(crate) struct CreateParams {
     /// Rooms: an outline of points, or `at` inside closed walls.
     #[serde(default)]
     pub rooms: Vec<RoomSpec>,
+    /// Electrosmog volumes (`pts`, `h`, `value`, `unit`).
+    #[serde(default)]
+    pub esmog: Vec<EsmogSpec>,
     /// Dimension lines: between two points, along a wall, or across a room.
     #[serde(default)]
     pub dims: Vec<DimSpec>,
@@ -179,7 +193,7 @@ pub(crate) struct CreateParams {
     /// Pitched roofs over a rectangle, as one group of panels.
     #[serde(default)]
     pub roofs: Vec<RoofSpec>,
-    /// Solids: outlines raised by `h` (slabs) or sections swept `a`→`b` (gables, ramps).
+    /// Slabs (`pts`+`h`) or sweeps (`profile`).
     #[serde(default)]
     pub solids: Vec<SolidSpec>,
     /// `variants` index, 0-based (not a revision); made active.
@@ -204,6 +218,9 @@ impl CreateParams {
                 all(pts);
             }
             r.at = r.at.map(f);
+        }
+        for z in &mut self.esmog {
+            all(&mut z.pts);
         }
         for d in &mut self.dims {
             d.a = d.a.map(f);
@@ -242,8 +259,7 @@ pub(crate) struct SkylightSpec {
 pub(crate) struct SolidSpec {
     /// Plan outline `[[x,y],…]` cm.
     pub pts: Option<Vec<Point2>>,
-    /// Instead of `pts`: cross-section `[[u,z],…]` cm swept from `a` to `b`
-    /// (+u is +x when a→b goes down the plan; z above the floor).
+    /// Cross-section `[[u,z]]` swept a→b.
     pub profile: Option<Vec<Point2>>,
     /// With `profile`: where the sweep starts, `[x,y]` cm.
     pub a: Option<Point2>,
@@ -381,7 +397,7 @@ fn solid(doc: &mut Document, spec: &SolidSpec) -> EditResult<newera_core::Furnit
 pub(crate) struct RoofSpec {
     /// Rectangle corners in order; the ridge runs along pts[0]→pts[1].
     pub pts: Vec<Point2>,
-    /// Default `gable` (steep = A-frame); `shed` rises from the pts[0]→pts[1] side.
+    /// `gable` or `shed`.
     #[schemars(extend("enum" = ["gable", "shed"]))]
     pub kind: Option<String>,
     /// Slope in degrees (default 30), unless `ridge_h` is given.
@@ -399,7 +415,7 @@ pub(crate) struct RoofSpec {
     /// Also close the gable ends with sloping walls.
     #[serde(default)]
     pub gables: bool,
-    /// Glazed roof openings: center `at`, `w` along the ridge, `d` across, cm.
+    /// `{at,w,d}` openings.
     #[serde(default)]
     pub skylights: Vec<SkylightSpec>,
     /// The roof group's name.
@@ -589,6 +605,23 @@ pub(crate) fn create(doc: &mut Document, params: CreateParams) -> EditResult<Cre
             .flatten();
         ids.push(room.id.to_string());
         commands.push(Command::insert(room));
+    }
+
+    for spec in params.esmog {
+        if spec.pts.len() < 3 {
+            return Err("esmog zone needs at least 3 points".into());
+        }
+        let mut zone = EsmogZone::new(doc.new_esmog_id(), spec.pts);
+        if let Some(name) = spec.name {
+            zone.name = name;
+        }
+        zone.height = spec.h.unwrap_or(zone.height);
+        zone.value = spec.value;
+        if let Some(unit) = spec.unit {
+            zone.unit = unit;
+        }
+        ids.push(zone.id.to_string());
+        commands.push(Command::insert(zone));
     }
 
     for spec in params.dims {
@@ -910,6 +943,29 @@ pub(crate) fn missing(home: &newera_core::Home, id: ElementId) -> String {
     format!("{id} not found")
 }
 
+/// `800`, `12 nT`, or empty to clear the number.
+fn apply_esmog_reading(zone: &mut EsmogZone, text: &str) -> EditResult<()> {
+    let text = text.trim();
+    if text.is_empty() {
+        zone.value = None;
+        return Ok(());
+    }
+    let (num, rest) = text
+        .split_once(char::is_whitespace)
+        .map_or((text, None), |(n, u)| (n, Some(u.trim())));
+    let value: f64 = num
+        .parse()
+        .map_err(|_| format!("esmog reading `{text}` is not a number"))?;
+    if !value.is_finite() {
+        return Err("esmog reading must be finite".into());
+    }
+    zone.value = Some(value);
+    if let Some(unit) = rest.filter(|u| !u.is_empty()) {
+        zone.unit = unit.to_owned();
+    }
+    Ok(())
+}
+
 /// Changes elements by id in one step. Returns the wall ends it welded onto
 /// walls they nearly touch (see [`weld`]; only ends that were given move), and
 /// the doors and windows of a reshaped wall that no longer fit in it and were
@@ -953,6 +1009,9 @@ pub(crate) fn update(doc: &mut Document, items: Vec<UpdateSpec>) -> EditResult<U
                 "floor_mat",
                 "ceil_mat",
                 "auto",
+            ],
+            Element::Esmog(_) => &[
+                "name", "pts", "h", "elev", "text", "color", "opacity", "level",
             ],
             Element::Dimension(_) => &["a", "b", "off", "level", "in3d", "elev", "pitch"],
             Element::Label(_) => &[
@@ -1120,6 +1179,24 @@ pub(crate) fn update(doc: &mut Document, items: Vec<UpdateSpec>) -> EditResult<U
                     r.ceiling_material = material(raw)?;
                 }
                 Element::Room(r)
+            }
+            Element::Esmog(mut z) => {
+                if let Some(name) = spec.name {
+                    z.name = name;
+                }
+                z.points = spec.pts.unwrap_or(z.points);
+                z.height = spec.h.unwrap_or(z.height);
+                z.elevation = spec.elev.unwrap_or(z.elevation);
+                if let Some(text) = spec.text {
+                    apply_esmog_reading(&mut z, &text)?;
+                }
+                if let Some(color) = spec.color {
+                    z.color = color;
+                }
+                if let Some(opacity) = spec.opacity {
+                    z.opacity = opacity;
+                }
+                Element::Esmog(z)
             }
             Element::Dimension(mut d) => {
                 d.start = spec.a.unwrap_or(d.start);
@@ -1844,6 +1921,59 @@ mod tests {
         .unwrap_err();
         assert!(err.contains("no space enclosed"));
         assert!(doc.home().walls.is_empty());
+    }
+
+    #[test]
+    fn overlapping_esmog_zones_stay_two() {
+        let mut doc = Document::default();
+        let pts = |ox: f64| {
+            vec![
+                Point2::new(ox, 0.0),
+                Point2::new(ox + 200.0, 0.0),
+                Point2::new(ox + 200.0, 200.0),
+                Point2::new(ox, 200.0),
+            ]
+        };
+        let ids = create(
+            &mut doc,
+            CreateParams {
+                esmog: vec![
+                    EsmogSpec {
+                        pts: pts(0.0),
+                        value: Some(800.0),
+                        ..EsmogSpec::default()
+                    },
+                    EsmogSpec {
+                        pts: pts(50.0),
+                        value: Some(12.0),
+                        unit: Some("nT".into()),
+                        name: Some("Schlafplatz".into()),
+                        ..EsmogSpec::default()
+                    },
+                ],
+                ..CreateParams::default()
+            },
+        )
+        .unwrap()
+        .ids;
+        assert_eq!(ids, ["em1", "em2"]);
+        assert_eq!(doc.home().esmog.len(), 2);
+        assert_eq!(doc.home().esmog[0].value, Some(800.0));
+        assert_eq!(doc.home().esmog[1].unit, "nT");
+        assert_eq!(doc.home().esmog[1].name, "Schlafplatz");
+        update(
+            &mut doc,
+            vec![
+                serde_json::from_value(serde_json::json!({
+                    "id": "em1",
+                    "text": "0.5 V/m"
+                }))
+                .unwrap(),
+            ],
+        )
+        .unwrap();
+        assert_eq!(doc.home().esmog[0].value, Some(0.5));
+        assert_eq!(doc.home().esmog[0].unit, "V/m");
     }
 
     #[test]

@@ -3,10 +3,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::elements::{BackgroundImage, Compass, Dimension, Element, Label, Level, Room, Wall};
 use crate::error::{CoreError, CoreResult};
+use crate::esmog::EsmogZone;
 use crate::furniture::{Furniture, WallCut, wall_cuts};
 use crate::geometry::Point2;
 use crate::ids::{
-    DimensionId, ElementId, FurnitureId, LabelId, LevelId, PolylineId, RoomId, WallId,
+    DimensionId, ElementId, EsmogId, FurnitureId, LabelId, LevelId, PolylineId, RoomId, WallId,
 };
 use crate::joins::wall_outlines;
 use crate::style::{Cameras, Environment, Polyline, PrintSettings, Properties};
@@ -19,6 +20,9 @@ pub struct Home {
     pub walls: Vec<Wall>,
     #[serde(default)]
     pub rooms: Vec<Room>,
+    /// Electrosmog measurement volumes. Overlapping ones stay separate.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub esmog: Vec<EsmogZone>,
     #[serde(default)]
     pub dimensions: Vec<Dimension>,
     #[serde(default)]
@@ -93,6 +97,7 @@ impl Default for Home {
             name: "Nova casa".to_owned(),
             walls: Vec::new(),
             rooms: Vec::new(),
+            esmog: Vec::new(),
             dimensions: Vec::new(),
             labels: Vec::new(),
             furniture: Vec::new(),
@@ -218,6 +223,7 @@ impl Home {
 collections! {
     Wall, Wall, WallId, walls, wall, new_wall_id;
     Room, Room, RoomId, rooms, room, new_room_id;
+    Esmog, EsmogZone, EsmogId, esmog, esmog_zone, new_esmog_id;
     Dimension, Dimension, DimensionId, dimensions, dimension, new_dimension_id;
     Label, Label, LabelId, labels, label, new_label_id;
     Furniture, Furniture, FurnitureId, furniture, piece, new_furniture_id;
@@ -433,6 +439,12 @@ impl Home {
                 .filter(|e| keep(e.level))
                 .cloned()
                 .collect(),
+            esmog: self
+                .esmog
+                .iter()
+                .filter(|e| keep(e.level))
+                .cloned()
+                .collect(),
             dimensions: self
                 .dimensions
                 .iter()
@@ -624,6 +636,7 @@ impl Home {
             .iter()
             .flat_map(Wall::centerline)
             .chain(self.rooms.iter().flat_map(|r| r.points.iter().copied()))
+            .chain(self.esmog.iter().flat_map(|z| z.points.iter().copied()))
             .chain(
                 self.furniture
                     .iter()
@@ -648,6 +661,7 @@ impl Home {
             .iter()
             .flat_map(Wall::centerline)
             .chain(self.rooms.iter().flat_map(|r| r.points.iter().copied()))
+            .chain(self.esmog.iter().flat_map(|z| z.points.iter().copied()))
             .chain(self.dimensions.iter().flat_map(|d| [d.start, d.end]))
             .chain(self.labels.iter().map(|l| l.position))
             .chain(self.polylines.iter().flat_map(|p| p.points.iter().copied()))

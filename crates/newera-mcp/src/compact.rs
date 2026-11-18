@@ -35,6 +35,33 @@ fn obj(pairs: impl IntoIterator<Item = (&'static str, Value)>) -> Value {
     )
 }
 
+pub(crate) fn esmog(z: &newera_core::EsmogZone) -> Value {
+    let mut v = obj([
+        ("id", json!(z.id.to_string())),
+        ("pts", points(&z.points)),
+        ("h", num(z.height)),
+    ]);
+    if !z.name.is_empty() {
+        v["name"] = json!(z.name);
+    }
+    if z.elevation != 0.0 {
+        v["elev"] = num(z.elevation);
+    }
+    if let Some(value) = z.value {
+        v["value"] = json!(value);
+    }
+    if z.unit != newera_core::EsmogZone::DEFAULT_UNIT {
+        v["unit"] = json!(z.unit);
+    }
+    if z.color != newera_core::EsmogZone::DEFAULT_COLOR {
+        v["color"] = json!(z.color);
+    }
+    if (z.opacity - newera_core::EsmogZone::DEFAULT_OPACITY).abs() > f64::EPSILON {
+        v["opacity"] = json!(z.opacity);
+    }
+    v
+}
+
 pub(crate) fn room(r: &newera_core::Room) -> Value {
     let mut v = obj([
         ("id", json!(r.id.to_string())),
@@ -132,13 +159,22 @@ pub(crate) fn polyline(p: &newera_core::Polyline) -> Value {
 }
 
 /// The array key each kind of element is listed under.
-pub(crate) const KINDS: [&str; 6] = ["walls", "rooms", "dims", "labels", "furniture", "polylines"];
+pub(crate) const KINDS: [&str; 7] = [
+    "walls",
+    "rooms",
+    "esmog",
+    "dims",
+    "labels",
+    "furniture",
+    "polylines",
+];
 
 pub(crate) fn kind_of(id: newera_core::ElementId) -> &'static str {
     use newera_core::ElementId;
     match id {
         ElementId::Wall(_) => "walls",
         ElementId::Room(_) => "rooms",
+        ElementId::Esmog(_) => "esmog",
         ElementId::Dimension(_) => "dims",
         ElementId::Label(_) => "labels",
         ElementId::Furniture(_) => "furniture",
@@ -154,6 +190,7 @@ pub(crate) fn element(home: &Home, id: newera_core::ElementId) -> Option<Value> 
     match id {
         ElementId::Wall(w) => home.wall(w).map(wall),
         ElementId::Room(r) => home.room(r).map(room),
+        ElementId::Esmog(z) => home.esmog_zone(z).map(esmog),
         ElementId::Dimension(d) => home.dimension(d).map(dimension),
         ElementId::Label(l) => home.label(l).map(label),
         ElementId::Polyline(p) => home.polyline(p).map(polyline),
@@ -173,6 +210,7 @@ pub(crate) fn home(home: &Home, revision: u64) -> Value {
     for (key, list) in [
         ("walls", home.walls.iter().map(wall).collect::<Vec<_>>()),
         ("rooms", home.rooms.iter().map(room).collect()),
+        ("esmog", home.esmog.iter().map(esmog).collect()),
         ("dims", home.dimensions.iter().map(dimension).collect()),
         ("labels", home.labels.iter().map(label).collect()),
         (
@@ -412,6 +450,7 @@ pub(crate) fn summary(home: &Home, revision: u64) -> Value {
             obj([
                 ("walls", json!(home.walls.len())),
                 ("rooms", json!(home.rooms.len())),
+                ("esmog", json!(home.esmog.len())),
                 ("dims", json!(home.dimensions.len())),
                 ("labels", json!(home.labels.len())),
                 ("furniture", json!(home.furniture.len())),
@@ -781,6 +820,9 @@ pub(crate) fn diff(before: &Home, after: &Home) -> Value {
         for r in &home.rooms {
             map.insert(r.id.to_string(), on(room(r), r.level));
         }
+        for z in &home.esmog {
+            map.insert(z.id.to_string(), on(esmog(z), z.level));
+        }
         for d in &home.dimensions {
             map.insert(d.id.to_string(), on(dimension(d), d.level));
         }
@@ -971,5 +1013,30 @@ mod tests {
             home(&h, 3).to_string(),
             r#"{"name":"Nova casa","rev":3,"walls":[{"a":[0,0],"b":[800,0],"id":"w1"}]}"#
         );
+    }
+
+    #[test]
+    fn overlapping_esmog_zones_list_as_two() {
+        use newera_core::{EsmogId, EsmogZone};
+        let mut h = Home::default();
+        let pts = |ox: f64| {
+            vec![
+                Point2::new(ox, 0.0),
+                Point2::new(ox + 200.0, 0.0),
+                Point2::new(ox + 200.0, 200.0),
+                Point2::new(ox, 200.0),
+            ]
+        };
+        let mut a = EsmogZone::new(EsmogId(1), pts(0.0));
+        a.value = Some(800.0);
+        let mut b = EsmogZone::new(EsmogId(2), pts(50.0));
+        b.value = Some(12.0);
+        b.unit = "nT".into();
+        h.esmog.extend([a, b]);
+        let listed = home(&h, 1);
+        assert_eq!(listed["esmog"].as_array().unwrap().len(), 2);
+        assert_eq!(listed["esmog"][0]["value"], 800.0);
+        assert_eq!(listed["esmog"][1]["unit"], "nT");
+        assert_eq!(summary(&h, 1)["counts"]["esmog"], 2);
     }
 }

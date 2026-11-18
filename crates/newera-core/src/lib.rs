@@ -17,6 +17,7 @@ mod detect;
 mod document;
 pub mod electrical;
 mod elements;
+mod esmog;
 mod error;
 pub mod front;
 mod furniture;
@@ -69,6 +70,7 @@ pub use elements::{
     BackgroundImage, Baseboard, Compass, Dimension, Element, Hold, Label, Level, Room, RoomUse,
     Wall,
 };
+pub use esmog::{ESMOG_UNITS, EsmogZone};
 pub use error::{CoreError, CoreResult};
 pub use furniture::{
     FarModel, Furniture, Light, LightSource, Measure, ModelMaterial, ModelPart, ModelTransform,
@@ -78,7 +80,8 @@ pub use furniture::{
 pub use geometry::{Point2, polygon_area, polygon_centroid, signed_area, to_polygon, triangulate};
 pub use home::Home;
 pub use ids::{
-    DimensionId, ElementId, FurnitureId, LabelId, LevelId, ParseIdError, PolylineId, RoomId, WallId,
+    DimensionId, ElementId, EsmogId, FurnitureId, LabelId, LevelId, ParseIdError, PolylineId,
+    RoomId, WallId,
 };
 pub use joins::{JOIN_TOLERANCE, TOUCH_TOLERANCE, wall_outlines, weld_ends};
 pub use layers::{LAYER_KEY, PlanLayer, layer_in_group, layer_of};

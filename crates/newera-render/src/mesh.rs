@@ -183,10 +183,14 @@ impl Surface {
     }
 
     fn vertex(&self, position: Vec3, normal: Vec3) -> Vertex {
+        self.vertex_alpha(position, normal, 1.0)
+    }
+
+    fn vertex_alpha(&self, position: Vec3, normal: Vec3, alpha: f32) -> Vertex {
         Vertex {
             position: position.to_array(),
             normal: normal.to_array(),
-            color: [self.color[0], self.color[1], self.color[2], 1.0],
+            color: [self.color[0], self.color[1], self.color[2], alpha],
             uv: self.uv(position),
             kind: self.kind,
         }
@@ -517,6 +521,9 @@ impl Mesh {
             {
                 mesh.add_dimension(dimension, base);
             }
+            for zone in &view.esmog {
+                mesh.add_esmog(zone, base);
+            }
         }
         mesh
     }
@@ -761,6 +768,86 @@ impl Mesh {
             self.vertices.push(surface.vertex(corner, normal));
         }
         self.indices.extend([base, base + 1, base + 2]);
+    }
+
+    fn add_triangle_alpha(
+        &mut self,
+        corners: [Vec3; 3],
+        normal: Vec3,
+        surface: &Surface,
+        alpha: f32,
+    ) {
+        let base = self.next_index();
+        for corner in corners {
+            self.vertices
+                .push(surface.vertex_alpha(corner, normal, alpha));
+        }
+        self.transparent.extend([base, base + 1, base + 2]);
+    }
+
+    fn add_quad_alpha(
+        &mut self,
+        mut corners: [Vec3; 4],
+        normal: Vec3,
+        surface: &Surface,
+        alpha: f32,
+    ) {
+        let geometric = (corners[1] - corners[0]).cross(corners[2] - corners[0]);
+        if geometric.dot(normal) < 0.0 {
+            corners.reverse();
+        }
+        let base = self.next_index();
+        for corner in corners {
+            self.vertices
+                .push(surface.vertex_alpha(corner, normal, alpha));
+        }
+        self.transparent
+            .extend([base, base + 1, base + 2, base, base + 2, base + 3]);
+    }
+
+    /// Translucent volume of a measurement zone, with the reading standing
+    /// in the middle so overlapping zones stay two objects.
+    #[allow(clippy::cast_possible_truncation)]
+    fn add_esmog(&mut self, zone: &newera_core::EsmogZone, base: f64) {
+        if zone.points.len() < 3 || zone.height <= 0.0 {
+            return;
+        }
+        let alpha = zone.opacity.clamp(0.08, 0.85) as f32;
+        let surface = Surface::plain(srgb_to_linear(zone.color));
+        let bottom = base + zone.elevation;
+        let top = bottom + zone.height;
+        let pts = up_facing(&zone.points);
+        for [a, b, c] in newera_core::triangulate(&pts) {
+            let tri = [pts[a], pts[b], pts[c]];
+            self.add_triangle_alpha(tri.map(|p| to_world(p, top)), Vec3::Y, &surface, alpha);
+            self.add_triangle_alpha(
+                [tri[0], tri[2], tri[1]].map(|p| to_world(p, bottom)),
+                -Vec3::Y,
+                &surface,
+                alpha,
+            );
+        }
+        let n = pts.len();
+        for k in 0..n {
+            let p = pts[k];
+            let q = pts[(k + 1) % n];
+            let (pb, qb) = (to_world(p, bottom), to_world(q, bottom));
+            let (pt, qt) = (to_world(p, top), to_world(q, top));
+            let normal = (qb - pb).cross(Vec3::Y).normalize_or_zero();
+            self.add_quad_alpha([pb, qb, qt, pt], normal, &surface, alpha);
+            self.add_quad_alpha([pb, pt, qt, qb], -normal, &surface, alpha);
+        }
+        let text = zone.plan_label().replace('\n', "  ");
+        let Some(center) = zone.centroid().filter(|_| !text.is_empty()) else {
+            return;
+        };
+        let origin = Vec3::new(
+            center.x as f32,
+            (bottom + zone.height / 2.0) as f32,
+            center.y as f32,
+        );
+        let ink = srgb_to_linear([40, 32, 28]);
+        self.add_text(&text, 16.0, 0.5, origin, (Vec3::X, Vec3::Y), ink);
     }
 
     fn add_ground(&mut self, home: &Home) {
@@ -2022,6 +2109,51 @@ mod annotation_tests {
         );
         // Offset to the left of start → end on the plan is -y, world -z.
         assert!(lo.z < -0.5, "{lo}");
+    }
+}
+
+#[cfg(test)]
+mod esmog_tests {
+    use newera_core::{EsmogId, EsmogZone};
+
+    use super::*;
+
+    #[test]
+    fn overlapping_zones_become_transparent_volumes() {
+        let mut home = Home::default();
+        let mut a = EsmogZone::new(
+            EsmogId(1),
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(200.0, 0.0),
+                Point2::new(200.0, 200.0),
+                Point2::new(0.0, 200.0),
+            ],
+        );
+        a.value = Some(800.0);
+        a.height = 100.0;
+        let mut b = a.clone();
+        b.id = EsmogId(2);
+        b.points.iter_mut().for_each(|p| {
+            p.x += 40.0;
+            p.y += 40.0;
+        });
+        b.value = Some(12.0);
+        b.unit = "nT".into();
+        home.esmog.extend([a, b]);
+        let mesh = Mesh::from_home(&home, &Selection::new(), &|_| None);
+        assert!(
+            mesh.transparent.len() >= 12,
+            "each zone has translucent faces: {}",
+            mesh.transparent.len()
+        );
+        let alphas: Vec<f32> = mesh
+            .vertices
+            .iter()
+            .map(|v| v.color[3])
+            .filter(|a| *a > 0.0 && *a < 0.99)
+            .collect();
+        assert!(!alphas.is_empty(), "vertices carry alpha");
     }
 }
 

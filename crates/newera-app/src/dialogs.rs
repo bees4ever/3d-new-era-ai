@@ -3,8 +3,8 @@
 use crate::icon;
 use eframe::egui::{self, DragValue, RichText};
 use newera_core::{
-    BackgroundImage, Command, Compass, Dimension, Element, Furniture, Label, Material, Pattern,
-    Point2, Room, WALL_TYPES, Wall, WallId,
+    BackgroundImage, Command, Compass, Dimension, ESMOG_UNITS, Element, EsmogZone, Furniture,
+    Label, Material, Pattern, Point2, Room, WALL_TYPES, Wall, WallId,
 };
 
 use crate::app::{NewEraApp, Pending};
@@ -21,6 +21,13 @@ pub(crate) enum Dialog {
         finish: WallFinish,
     },
     ModifyRoom(Room),
+    ModifyEsmog {
+        zone: EsmogZone,
+        /// Digits of the reading while typing; empty means no number yet.
+        value_text: String,
+        /// Focus the reading once; every-frame focus made the field flicker.
+        focus_reading: bool,
+    },
     ModifyDimension(Dimension),
     ModifyLabel(Label),
     ModifyFurniture {
@@ -125,6 +132,11 @@ impl Dialog {
         }
         match elements {
             [Element::Room(r)] => Some(Self::ModifyRoom(r.clone())),
+            [Element::Esmog(z)] => Some(Self::ModifyEsmog {
+                value_text: esmog_value_text(&z),
+                zone: z.clone(),
+                focus_reading: true,
+            }),
             [Element::Dimension(d)] => Some(Self::ModifyDimension(d.clone())),
             [Element::Label(l)] => Some(Self::ModifyLabel(l.clone())),
             [Element::Level(l)] => Some(Self::ModifyLevel(l.clone())),
@@ -136,6 +148,22 @@ impl Dialog {
             _ => None,
         }
     }
+}
+
+fn esmog_value_text(zone: &EsmogZone) -> String {
+    match zone.value {
+        Some(v) if v.fract().abs() < 1e-9 => format!("{v:.0}"),
+        Some(v) => format!("{v}"),
+        None => String::new(),
+    }
+}
+
+fn parse_esmog_value(text: &str) -> Option<f64> {
+    let text = text.trim().replace(',', ".");
+    if text.is_empty() {
+        return None;
+    }
+    text.parse().ok().filter(|v: &f64| v.is_finite())
 }
 
 fn cm(value: &mut f64, range: std::ops::RangeInclusive<f64>) -> DragValue<'_> {
@@ -487,6 +515,62 @@ pub(crate) fn show(app: &mut NewEraApp, ctx: &egui::Context, dialog: Dialog) -> 
             finish(app, answer, Dialog::ModifyRoom(room.clone()), || {
                 Command::update(room)
             })
+        }
+        Dialog::ModifyEsmog {
+            mut zone,
+            mut value_text,
+            mut focus_reading,
+        } => {
+            let answer = modal(ctx, crate::i18n::tr("Modificar medição de esmog"), |ui| {
+                grid(ui, "esmog", |ui| {
+                    ui.label(crate::i18n::tr("Nome"));
+                    ui.text_edit_singleline(&mut zone.name);
+                    ui.end_row();
+                    ui.label(crate::i18n::tr("Valor medido"));
+                    let reading = ui.add(
+                        egui::TextEdit::singleline(&mut value_text)
+                            .desired_width(120.0)
+                            .hint_text("—"),
+                    );
+                    if focus_reading {
+                        reading.request_focus();
+                        focus_reading = false;
+                    }
+                    ui.end_row();
+                    ui.label(crate::i18n::tr("Unidade"));
+                    egui::ComboBox::from_id_salt("esmog_unit")
+                        .selected_text(&zone.unit)
+                        .show_ui(ui, |ui| {
+                            for unit in ESMOG_UNITS {
+                                ui.selectable_value(&mut zone.unit, (*unit).to_owned(), *unit);
+                            }
+                        });
+                    ui.end_row();
+                    ui.label(crate::i18n::tr("Altura"));
+                    ui.add(cm(&mut zone.height, 1.0..=10_000.0));
+                    ui.end_row();
+                    ui.label(crate::i18n::tr("Elevação"));
+                    ui.add(cm(&mut zone.elevation, -1000.0..=10_000.0));
+                    ui.end_row();
+                    ui.label(crate::i18n::tr("Cor"));
+                    ui.color_edit_button_srgb(&mut zone.color);
+                    ui.end_row();
+                    ui.label(crate::i18n::tr("Opacidade"));
+                    ui.add(egui::Slider::new(&mut zone.opacity, 0.05..=0.9).max_decimals(2));
+                    ui.end_row();
+                });
+            });
+            zone.value = parse_esmog_value(&value_text);
+            finish(
+                app,
+                answer,
+                Dialog::ModifyEsmog {
+                    zone: zone.clone(),
+                    value_text,
+                    focus_reading,
+                },
+                || Command::update(zone),
+            )
         }
         Dialog::ModifyDimension(mut dim) => {
             let answer = modal(ctx, crate::i18n::tr("Modificar cota"), |ui| {
@@ -1015,7 +1099,7 @@ pub(crate) fn show(app: &mut NewEraApp, ctx: &egui::Context, dialog: Dialog) -> 
                     ),
                 );
                 for d in newera_core::Discipline::ALL {
-                    ui.strong(d.name());
+                    ui.strong(crate::i18n::tr(d.name()));
                     let mine: Vec<_> = rows.iter().filter(|r| r.discipline == d).collect();
                     if mine.is_empty() {
                         ui.weak(crate::i18n::tr("Nenhum ponto"));
@@ -1024,7 +1108,7 @@ pub(crate) fn show(app: &mut NewEraApp, ctx: &egui::Context, dialog: Dialog) -> 
                         .striped(true)
                         .show(ui, |ui| {
                             for row in mine {
-                                ui.label(&row.name);
+                                ui.label(crate::i18n::shown(&row.name));
                                 ui.label(RichText::new(row.count.to_string()).strong());
                                 ui.end_row();
                             }
@@ -1281,7 +1365,10 @@ pub(crate) fn show(app: &mut NewEraApp, ctx: &egui::Context, dialog: Dialog) -> 
             let mut choice = None;
             crate::theme::modal(ctx, egui::Id::unique("delete-level")).show(ctx, |ui| {
                 ui.set_min_width(380.0);
-                crate::theme::title(ui, &crate::i18n::fill("Excluir “{}”?", &[&name]));
+                crate::theme::title(
+                    ui,
+                    &crate::i18n::fill("Excluir “{}”?", &[&crate::i18n::shown(&name)]),
+                );
                 ui.label(crate::i18n::tr(
                     "O andar e tudo o que está nele serão removidos (dá para desfazer).",
                 ));

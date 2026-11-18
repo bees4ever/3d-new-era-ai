@@ -493,7 +493,7 @@
       "readOnlyHint": false,
       "title": "Draw walls, rooms and more"
     },
-    "description": "Create walls (polylines; hs = height per point for gables), rooms (pts, or at=[x,y] to detect from walls; ceiling_flat=false follows wall profiles instead of the default flat ceiling), dims (a+b or wall id), labels, roofs (rectangle pts, gable|shed, pitch or ridge_h, eave h, overhang, gables=true closes the ends, skylights [{at,w,d}] cut glazed openings) and solids (pts outline raised by h at elev: slabs/mezzanines of any shape; or profile [[u,z]] swept from a to b: gables, ramps) in one atomic step.",
+    "description": "Create walls (polylines; hs = height per point for gables), rooms (pts, or at=[x,y] to detect from walls; ceiling_flat=false follows wall profiles), esmog (pts, h, optional value+unit), dims (a+b or wall id), labels, roofs (rectangle pts, gable|shed, pitch or ridge_h, eave h, overhang, gables=true closes the ends, skylights [{at,w,d}]) and solids (pts raised by h at elev, or profile [[u,z]] swept a→b) in one atomic step.",
     "inputSchema": {
       "$defs": {
         "ArrowStyle": {
@@ -547,7 +547,7 @@
               "type": "boolean"
             },
             "off": {
-              "description": "Offset cm from the measured line (default 40 for walls; a/b: left of a→b is positive)",
+              "description": "Offset cm (left of a→b positive)",
               "type": "number"
             },
             "pitch": {
@@ -559,7 +559,7 @@
               "type": "string"
             },
             "side": {
-              "description": "`out` (outer face, default for chains), `in` (inner face) or `axis` (default)",
+              "description": "`out`, `in` or `axis`",
               "type": "string"
             },
             "wall": {
@@ -567,6 +567,34 @@
               "type": "string"
             }
           },
+          "type": "object"
+        },
+        "EsmogSpec": {
+          "properties": {
+            "h": {
+              "description": "Height cm (default 250)",
+              "type": "number"
+            },
+            "name": {
+              "type": "string"
+            },
+            "pts": {
+              "description": "Floor polygon",
+              "items": {
+                "$ref": "#/$defs/Point2"
+              },
+              "type": "array"
+            },
+            "unit": {
+              "type": "string"
+            },
+            "value": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "pts"
+          ],
           "type": "object"
         },
         "LabelSpec": {
@@ -684,7 +712,7 @@
               "type": "number"
             },
             "kind": {
-              "description": "Default `gable` (steep = A-frame); `shed` rises from the pts[0]→pts[1] side",
+              "description": "`gable` or `shed`",
               "enum": [
                 "gable",
                 "shed"
@@ -715,7 +743,7 @@
               "type": "number"
             },
             "skylights": {
-              "description": "Glazed roof openings: center `at`, `w` along the ridge, `d` across, cm",
+              "description": "`{at,w,d}` openings",
               "items": {
                 "$ref": "#/$defs/SkylightSpec"
               },
@@ -742,7 +770,7 @@
               "type": "string"
             },
             "ceiling_flat": {
-              "description": "Flat ceiling at storey height (default) or along wall profiles (false)",
+              "description": "Flat (default) or along walls",
               "type": "boolean"
             },
             "floor_mat": {
@@ -850,7 +878,7 @@
               "type": "number"
             },
             "profile": {
-              "description": "Instead of `pts`: cross-section `[[u,z],…]` cm swept from `a` to `b` (+u is +x when a→b goes down the plan; z above the floor)",
+              "description": "Cross-section `[[u,z]]` swept a→b",
               "items": {
                 "$ref": "#/$defs/Point2"
               },
@@ -881,7 +909,7 @@
               "type": "number"
             },
             "hs": {
-              "description": "Height cm at each point, for sloping walls and gables (overrides `h`)",
+              "description": "Height cm per point",
               "items": {
                 "type": "number"
               },
@@ -918,6 +946,13 @@
           "description": "Dimension lines: between two points, along a wall, or across a room",
           "items": {
             "$ref": "#/$defs/DimSpec"
+          },
+          "type": "array"
+        },
+        "esmog": {
+          "description": "Electrosmog volumes (`pts`, `h`, `value`, `unit`)",
+          "items": {
+            "$ref": "#/$defs/EsmogSpec"
           },
           "type": "array"
         },
@@ -958,7 +993,7 @@
           "type": "array"
         },
         "solids": {
-          "description": "Solids: outlines raised by `h` (slabs) or sections swept `a`→`b` (gables, ramps)",
+          "description": "Slabs (`pts`+`h`) or sweeps (`profile`)",
           "items": {
             "$ref": "#/$defs/SolidSpec"
           },
@@ -3492,7 +3527,7 @@
           "type": "array"
         },
         "kinds": {
-          "description": "Only these kinds: `walls`, `rooms`, `dims`, `labels`, `furniture`, `polylines`",
+          "description": "Kinds: `walls`, `rooms`, `esmog`, `dims`, `labels`, `furniture`, `polylines`",
           "items": {
             "type": "string"
           },

@@ -149,6 +149,8 @@ id_types! {
     FurnitureId => "f", Furniture;
     /// Identifier of a [`crate::Level`] (storey).
     LevelId => "lv", Level;
+    /// Identifier of a [`crate::EsmogZone`].
+    EsmogId => "em", Esmog;
 }
 
 #[cfg(test)]
@@ -178,5 +180,10 @@ mod tests {
         assert!("x1".parse::<ElementId>().is_err());
         let json = serde_json::to_string(&ElementId::Room(RoomId(2))).unwrap();
         assert_eq!(json, r#""r2""#);
+        assert_eq!(
+            "em3".parse::<ElementId>().unwrap(),
+            ElementId::Esmog(EsmogId(3))
+        );
+        assert_eq!(EsmogId(3).to_string(), "em3");
     }
 }

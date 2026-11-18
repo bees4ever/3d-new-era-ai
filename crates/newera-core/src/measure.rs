@@ -433,6 +433,7 @@ pub fn element_bounds(home: &Home, id: ElementId) -> Option<(Point2, Point2)> {
         ElementId::Furniture(f) => home.find_piece(f).map(plan_bounds),
         ElementId::Wall(w) => home.wall(w).map(|w| wall_bounds(home, w)),
         ElementId::Room(r) => home.room(r).map(|r| hull(&r.points)),
+        ElementId::Esmog(z) => home.esmog_zone(z).map(|z| hull(&z.points)),
         ElementId::Dimension(d) => home.dimension(d).map(|d| hull(&[d.start, d.end])),
         ElementId::Label(l) => home.label(l).map(|l| hull(&[l.position])),
         ElementId::Polyline(p) => home.polyline(p).map(|p| hull(&p.points)),

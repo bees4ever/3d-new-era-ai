@@ -106,6 +106,15 @@ pub(crate) fn pick(
             return Some(wall.id.into());
         }
     }
+    // Smallest esmog zone first, so overlapping readings stay selectable.
+    if let Some(zone) = home
+        .esmog
+        .iter()
+        .filter(|z| inside(&z.points, p))
+        .min_by(|a, b| polygon_area(&a.points).total_cmp(&polygon_area(&b.points)))
+    {
+        return Some(zone.id.into());
+    }
     // Smallest room first, so nested rooms stay selectable.
     home.rooms
         .iter()
@@ -129,6 +138,12 @@ pub(crate) fn in_rect(home: &Home, min: Point2, max: Point2) -> Vec<ElementId> {
             .iter()
             .filter(|r| r.points.iter().all(contains))
             .map(|r| ElementId::from(r.id)),
+    );
+    ids.extend(
+        home.esmog
+            .iter()
+            .filter(|z| z.points.iter().all(contains))
+            .map(|z| ElementId::from(z.id)),
     );
     ids.extend(
         home.dimensions
